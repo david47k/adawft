@@ -268,7 +268,7 @@ static int dumpImage(char * filename, u8 * srcData, size_t height) {
 	u16 lastSize = get_u16(lastHeaderSizeOffset);
 	printf("last offset: %04X. lastSize: %04X\n", lastOffset, lastSize);
 	size_t size = lastOffset + (lastSize / 32);
-	printf("size: %u\n", size);
+	printf("size: %zu\n", size);
 	return dumpBlob(filename, srcData, size);
 }
 
@@ -352,7 +352,7 @@ int main(int argc, char * argv[]) {
 
 	// Check file size
 	if(fileSize < sizeof(FaceHeaderN)) {
-		printf("ERROR: File is less than the header size (%u bytes)!\n", sizeof(FaceHeaderN));
+		printf("ERROR: File is less than the header size (%zu bytes)!\n", sizeof(FaceHeaderN));
 		deleteBytes(bytes);
 		return 1;
 	}
