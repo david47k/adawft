@@ -78,23 +78,16 @@ typedef struct _FaceHeaderN {
 	u16 bhOffset;			// Offset of the background image (a StaticHeader)
 } FaceHeaderN;
 
-// TimeHeader and DayNumHeader are typically located between the FaceHeader and the background image header
+// TimeHeader(s) are typically located between the FaceHeader and the background image header
 
 // Digital clocks have a TimeHeader, Analog-Only clocks don't.
+// Can be time (HHMM) digits, or day number (DD) digits
 typedef struct _TimeHeader {
 	u16 type;				// 0x0101
-	u8 subtype;				// 00
+	u8 subtype;				// 0 for Time digits, 1 for DayNum digits
 	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
 	u8 unknown2[2];			// 0
 } TimeHeader;
-
-// Some faces (e.g. API4/13) have a DayNumHeader next.
-typedef struct _DayNumHeader {
-	u16 type;				// 0x0101
-	u8 subtype;				// 01
-	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
-	u8 unknown2[2];			// 0
-} DayNumHeader;
 
 // StaticHeader is for static images (e.g. the background)
 typedef struct _StaticHeader {
@@ -262,14 +255,22 @@ static int dumpBlob(char * fileName, u8 * srcData, size_t length) {
 
 static int dumpImage(char * filename, u8 * srcData, size_t height) {
 	// Calculate the size of the data when the image header is offsets + sizes
-	u8 * lastHeaderOffsetOffset = &srcData[(height-1)*4];
-	u8 * lastHeaderSizeOffset = &srcData[(height-1)*4+2];
-	u16 lastOffset = get_u16(lastHeaderOffsetOffset);
-	u16 lastSize = get_u16(lastHeaderSizeOffset);
-	printf("last offset: %04X. lastSize: %04X\n", lastOffset, lastSize);
-	size_t size = lastOffset + (lastSize / 32);
-	printf("size: %zu\n", size);
-	return dumpBlob(filename, srcData, size);
+	size_t lastHeaderEntry = (height * 4) - 4;
+	u8 * lastHeaderEntryPtr = &srcData[lastHeaderEntry];
+	u16 lastOffset = get_u16(lastHeaderEntryPtr);		// Not sure how these offsets work yet
+	u16 lastSize = get_u16(&lastHeaderEntryPtr[2]);
+	// The size is stored as a multiple of 32!. This suggests the lowest five bits may be used for something else.
+	if((lastSize&0x001F) != 0) {
+		printf("ERROR: Image size has unexpected data in the bottom 5 bits! 0x%02X\n", lastSize&0x001F);
+	}
+	size_t imageSize = lastOffset + (lastSize / 32);
+	printf("Dumping %s (%zu bytes) ... ", filename, imageSize);	
+	if(dumpBlob(filename, srcData, imageSize) != 0) {
+		printf("ERROR: failed!\n");
+		return 1;
+	}
+	printf("OK\n");
+	return 0;
 }
 
 //----------------------------------------------------------------------------
@@ -378,14 +379,24 @@ int main(int argc, char * argv[]) {
 	sscatprintf(watchFaceStr, "bgh.xy          %3u, %3u\n", bgh->xy.x, bgh->xy.y);
 	sscatprintf(watchFaceStr, "bgh.owh         0x%08X, %3u, %3u\n", bgh->offset, bgh->width, bgh->height);
 
-	if(dump) {
-		char fileNameBuf[1024];
-		snprintf(fileNameBuf, sizeof(fileNameBuf), "%s%sbackground.bin", folderName, DIR_SEPERATOR);
-		printf("Dumping background to %s\n", fileNameBuf);
-		if(dumpImage(fileNameBuf, &fileData[bgh->offset], bgh->xy.y) != 0) {
-			printf("Failed to dump!\n");
-		}
+	// Create a buffer for storing the dump filenames
+	char dfnBuf[1024];
+	snprintf(dfnBuf, sizeof(dfnBuf), "%s%s", folderName, DIR_SEPERATOR);
+	size_t baseSize = strlen(dfnBuf);
+	if(baseSize + 16 >= sizeof(dfnBuf)) {
+		printf("ERROR: dfnBuf too small!\n");
+		deleteBytes(bytes);
+		return 1;
 	}
+
+	// Dump the background
+	if(dump) {		
+		sprintf(&dfnBuf[baseSize], "background.bin");
+		dumpImage(dfnBuf, &fileData[bgh->offset], bgh->height);
+	}
+
+	// Store some counters for filenames
+	u16 staticCounter = 0;
 
 	// Process the different headers
 	size_t offset = sizeof(FaceHeaderN);
@@ -410,6 +421,10 @@ int main(int argc, char * argv[]) {
 					sscatprintf(watchFaceStr, "statich.type    0x%04X\n", statich->type);
 					sscatprintf(watchFaceStr, "statich.xy      %3u, %3u\n", statich->xy.x, statich->xy.y);
 					sscatprintf(watchFaceStr, "statich.owh     0x%08X, %3u, %3u\n", statich->offset, statich->width, statich->height);
+					if(dump) {		
+						sprintf(&dfnBuf[baseSize], "static_%02u.bin", staticCounter++);
+						dumpImage(dfnBuf, &fileData[statich->offset], statich->height);
+					}
 				}
 				offset += sizeof(StaticHeader);
 				break;
@@ -426,6 +441,10 @@ int main(int argc, char * argv[]) {
 				}
 				for(size_t i=0; i<10; i++) {
 					sscatprintf(watchFaceStr, "timeh.owh[%zu]    0x%08X, %3u, %3u\n", i, timeh->owh[i].offset,  timeh->owh[i].width, timeh->owh[i].height);
+					if(dump) {		
+						sprintf(&dfnBuf[baseSize], "time_%02u_%02zu.bin", timeh->subtype, i);
+						dumpImage(dfnBuf, &fileData[timeh->owh[i].offset], timeh->owh[i].height);
+					}					
 				}
 				offset += sizeof(TimeHeader);
 				break;
