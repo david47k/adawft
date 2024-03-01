@@ -1,4 +1,5 @@
-// bytes... a wrapper around malloc/free that stores size
+// bytes
+// a struct and wrapper around malloc/free that stores size
 
 //----------------------------------------------------------------------------
 //  EXPORTED STRUCTS

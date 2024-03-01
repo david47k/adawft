@@ -1,5 +1,5 @@
 // bytes
-// a wrapper around malloc/free that stores size
+// a struct and wrapper around malloc/free that stores size
 
 #include <string.h>
 #include <stdlib.h>

@@ -1,6 +1,6 @@
 /*  adawft.c
 
-	ALTERNATE Da Watch Face Tool (adawft)
+	Alternate Da Watch Face Tool (adawft)
 	adawft: Watch Face Tool for 'new' MO YOUNG / DA FIT binary watch face files.
 	Typically obtained by DA FIT app from api.moyoung.com in the /new/ system
 
@@ -31,8 +31,6 @@
 #include "bytes.h"
 
 #include "strutil.h"
-
-
 
 
 //----------------------------------------------------------------------------
@@ -68,6 +66,7 @@ typedef struct _XY {
 	u16 y;
 } XY;
 
+// The FaceHeader is located at the beginning of the file
 typedef struct _FaceHeaderN {
 	u16 apiVer;				// api_ver
 	u16 unknown0;			// FF FF
@@ -75,41 +74,38 @@ typedef struct _FaceHeaderN {
 	u16 unknown2;			// 0
 	u16 unknown3;			// 8C 00
 	u16 unknown4;			// A3 00
-	u16 thOffset;			// 10 00 (seen as 00 00 in analog API10)
-	u16 bhOffset;			// 0x0065 or 0x00B8 (so far) === offset of BackgroundHeader, seen as 10h(!) in analog API10 
+	u16 thOffset;			// Offset of the TimeHeader. Usually 0x0010. Seen as 0x0000 for an analog-only watchface using API10.
+	u16 bhOffset;			// Offset of the background image (a StaticHeader)
 } FaceHeaderN;
 
-// Digital clocks have a TimeHeader, Analog-Only clocks don't
+// TimeHeader and DayNumHeader are typically located between the FaceHeader and the background image header
+
+// Digital clocks have a TimeHeader, Analog-Only clocks don't.
 typedef struct _TimeHeader {
-	u16 type;			// 0x0101
-	u8 subtype;			// 00
-	OffsetWidthHeight owh[10];
-	u8 unknown2[2];				// 0
+	u16 type;				// 0x0101
+	u8 subtype;				// 00
+	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
+	u8 unknown2[2];			// 0
 } TimeHeader;
 
-// API4/13 has DayNumOwhHeader here, followed by a 00 00 as in the struct
+// Some faces (e.g. API4/13) have a DayNumHeader next.
 typedef struct _DayNumHeader {
 	u16 type;				// 0x0101
 	u8 subtype;				// 01
-	OffsetWidthHeight owh[10];
-	u8 unknown2[2];				// 0
+	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
+	u8 unknown2[2];			// 0
 } DayNumHeader;
 
+// StaticHeader is for static images (e.g. the background)
 typedef struct _StaticHeader {
 	u16 type;				// 0x0001
-	XY xy;					// 00 00 00 00 for background
+	XY xy;					// 0, 0 for background
 	u32 offset;				// offset of image data
 	u16 width;				// width of image
 	u16 height;				// height of image
 } StaticHeader;
 
-typedef struct _DayNameHeader {
-	u16 type;				// 0x0401
-	u8 subtype;				// 01
-	XY xy;
-	OffsetWidthHeight owh[7];
-} DayNameHeader;
-
+// TimePosHeader is the location of the time (HHMM) digits on the screen
 typedef struct _TimePosHeader {
 	u16 type;				// 0x0201
 	u32 unknown;			// 0
@@ -117,9 +113,57 @@ typedef struct _TimePosHeader {
 	u8 padding[12];			// 0
 } TimePosHeader;
 
+// DayNameHeader is for days Mon, Tue, Wed, Thu, Fri, Sat, Sun.
+typedef struct _DayNameHeader {
+	u16 type;				// 0x0401
+	u8 subtype;				// 01
+	XY xy;
+	OffsetWidthHeight owh[7];
+} DayNameHeader;
+
+// Battery charge displayed as an image with a specified fill region
+typedef struct _BatteryFillHeader {
+	u16 type;				// 0x0501
+	XY xy;
+	OffsetWidthHeight owh;
+	u8 x1;					// subsection for watch to fill, coords from image top left
+	u8 y1;					
+	u8 x2;					
+	u8 y2;
+	u32 unknown;
+	u32 unknown2;
+	OffsetWidthHeight owh2;	// maybe for empty?
+	OffsetWidthHeight owh3;	// maybe for full?
+} BatteryFillHeader;
+
+// Heart rate displayed as a number
+typedef struct _HeartRateNumHeader {
+	u16 type;				// 0x0601
+	u16 unknown;			// 0x0201
+	XY xy;					// xy, centered text in this case
+	u8 unknown2[18];		// 0
+} HeartRateNumHeader;
+
+// Number of steps done today
+typedef struct _StepsNumHeader {
+	u16 type;				// 0x0701
+	u16 unknown;			// 02 02
+	XY xy;					// X and Y of the steps number
+	u8 unknown2[18];		// 0
+} StepsNumHeader;
+
+// KCal displayed as a number
+typedef struct _KCalHeader {
+	u16 type;				// 0x0901
+	u16 unknown;			// 0x0201
+	XY xy;					// xy, centered text in this case
+	u8 unknown2[11];		// 0, size could be wrong
+} KCalHeader;
+
+// HandsHeader is for analog watchface hands
 typedef struct _HandsHeader {
 	u16 type;				// 0x0A01
-	u8 subtype;				// 00 = hour, 01 = minutes, 02 = seconds
+	u8 subtype;				// 0 = hour, 1 = minutes, 2 = seconds
 	XY unknownXY;
 	u32 offset;
 	u16 width;
@@ -128,65 +172,35 @@ typedef struct _HandsHeader {
 	u16 y;					// typically center of screen
 } HandsHeader;
 
-typedef struct _UnknownHeader0D01 {		// Seen in API13,15
+// This unknown header has been seen in API 13 and 15.
+typedef struct _UnknownHeader0D01 {
 	u16 type;				// 0x0D01
 	u16 unknown;			// 01 01
 	XY xy[2];				// Just a guess... 
 } UnknownHeader0D01;
 
-typedef struct _StepsNumHeader {
-	u16 type;				// 0x0701
-	u16 unknown;			// 02 02
-	XY xy;					// 0x3A, 0x90
-	u8 unknown2[18];		// 0
-} StepsNumHeader;
-
+// Month as a number
 typedef struct _MonthNumHeader {
 	u16 type;				// 0x0F01
 	u16 unknown;			// 02 02
-	XY xy[2];				// XY of the two digits
+	XY xy[2];				// XY of the two month digits
 } MonthNumHeader;
 
+// A bar (multi-image) display for different data sources
 typedef struct _BarDisplayHeader {
 	u16 type;				// 0x1201
 	u8 subtype;				// Data source: 5=HeartRate, 6=Battery, 2=KCal, 0=Steps
-	u8 count;				// number of items in the bar display
+	u8 count;				// number of images in the bar display
 	XY xy;
 	OffsetWidthHeight owh[1];	// there are *COUNT* number of entries! (not just 1!)
 } BarDisplayHeader;
 
-typedef struct _HeartRateNumHeader {
-	u16 type;				// 0x0601
-	u16 unknown;			// 0x0201
-	XY xy;					// xy, centered text in this case
-	u8 unknown2[18];		// 0
-} HeartRateNumHeader;
-
-typedef struct _KCalHeader {
-	u16 type;				// 0x0901
-	u16 unknown;			// 0x0201
-	XY xy;					// xy, centered text in this case
-	u8 unknown2[11];		// 0, size could be wrong
-} KCalHeader;
-
-typedef struct _BatteryFillHeader {
-	u16 type;				// 0x0501
-	XY xy;
-	OffsetWidthHeight owh;
-	u8 x1;					// subsection to fill, coords from image top left
-	u8 y1;					
-	u8 x2;					
-	u8 y2;
-	u32 unknown;
-	u32 unknown2;
-	OffsetWidthHeight owh2;	// maybe for empty
-	OffsetWidthHeight owh3;	// maybe for full
-} BatteryFillHeader;
-
 #pragma pack (pop)
 
 
-// API_VER INFO
+//----------------------------------------------------------------------------
+//  API_VER_INFO - information about each API level
+//----------------------------------------------------------------------------
 
 typedef struct _ApiVerInfo {
 	u8 apiVer;
@@ -204,6 +218,7 @@ static const ApiVerInfo API_VER_INFO[] = {
 	{ 29, "HHMM, bpm, ?, weather" },
 	{ 35, "Analog HMS hands, weekday name, DD, bpm, ?, ?" },
 };
+
 
 //----------------------------------------------------------------------------
 //  DUMPBLOB - dump binary data to file
@@ -247,11 +262,13 @@ static int dumpBlob(char * fileName, u8 * srcData, size_t length) {
 
 static int dumpImage(char * filename, u8 * srcData, size_t height) {
 	// Calculate the size of the data when the image header is offsets + sizes
-	u8 * lastHeaderOffsetOffset = &srcData[height*4];
-	u8 * lastHeaderSizeOffset = &srcData[height*4+2];
-	size_t lastOffset = get_u16(lastHeaderOffsetOffset);
-	size_t lastSize = get_u16(lastHeaderSizeOffset);
+	u8 * lastHeaderOffsetOffset = &srcData[(height-1)*4];
+	u8 * lastHeaderSizeOffset = &srcData[(height-1)*4+2];
+	u16 lastOffset = get_u16(lastHeaderOffsetOffset);
+	u16 lastSize = get_u16(lastHeaderSizeOffset);
+	printf("last offset: %04X. lastSize: %04X\n", lastOffset, lastSize);
 	size_t size = lastOffset + (lastSize / 32);
+	printf("size: %u\n", size);
 	return dumpBlob(filename, srcData, size);
 }
 
@@ -265,9 +282,10 @@ int main(int argc, char * argv[]) {
 	bool raw = true;
 	bool dump = false;
 	bool showHelp = false;
+	bool fileNameSet = false;
 
 	// display basic program header
-    printf("\n%s\n\n","adawft: ALTERNATE Watch Face Tool for MO YOUNG / DA FIT binary watch face files.");
+    printf("\n%s\n\n","adawft: Alternate Da Watch Face Tool for MO YOUNG / DA FIT binary watch face files.");
     
 	// check byte order
 	if(!systemIsLittleEndian()) {
@@ -276,7 +294,7 @@ int main(int argc, char * argv[]) {
 	}
 
 	// find executable name
-	char * basename = "amywft";
+	char * basename = "adawft";
 	if(argc>0) {
 		// find the name of the executable. not perfect but it's only used for display and no messy ifdefs.
 		char * b = strrchr(argv[0],'\\');
@@ -302,7 +320,12 @@ int main(int argc, char * argv[]) {
 			showHelp = true;
 		} else {
 			// must be fileName
-			fileName = argv[i];
+			if(!fileNameSet) {
+				fileName = argv[i];
+				fileNameSet = true;
+			} else {
+				printf("WARNING: Ignored unknown parameter: %s\n", argv[i]);
+			}
 		}
 	}
 
@@ -317,7 +340,6 @@ int main(int argc, char * argv[]) {
 		return 0;
     }
 
-
 	// Open the binary input file
 	Bytes * bytes = newBytesFromFile(fileName);
 	if(bytes == NULL) {
@@ -328,19 +350,9 @@ int main(int argc, char * argv[]) {
 	u8 * fileData = bytes->data;
 	size_t fileSize = bytes->size;
 
-	// Check file size	
-	if(fileSize < 152) {
-		printf("ERROR: File is less than the minimum expected size (152 bytes)!\n");
-		deleteBytes(bytes);
-		return 1;
-	}
-
-	// determine header size
-	u32 headerSize = 16;
-
-	// Check header size
-	if(fileSize < headerSize) {
-		printf("ERROR: File is less than the header size (%u bytes)!\n", headerSize);
+	// Check file size
+	if(fileSize < sizeof(FaceHeaderN)) {
+		printf("ERROR: File is less than the header size (%u bytes)!\n", sizeof(FaceHeaderN));
 		deleteBytes(bytes);
 		return 1;
 	}
@@ -372,7 +384,7 @@ int main(int argc, char * argv[]) {
 		printf("Dumping background to %s\n", fileNameBuf);
 		if(dumpImage(fileNameBuf, &fileData[bgh->offset], bgh->xy.y) != 0) {
 			printf("Failed to dump!\n");
-		};
+		}
 	}
 
 	// Process the different headers
@@ -383,10 +395,23 @@ int main(int argc, char * argv[]) {
 	while(more) {
 		switch(type) {
 			case 0x0000:
-				// End of header section?
+				// End of header section
 				sscatprintf(watchFaceStr, "@ 0x%08zX  0000 (End of headers)\n", offset);
 				offset += 2;
 				more = false;
+				break;
+			case 0x0001:
+				// StaticHeader for static images
+				if(offset == h->bhOffset) {
+					sscatprintf(watchFaceStr, "@ 0x%08zX  StaticHeader (Background)\n", offset);
+				} else {
+					sscatprintf(watchFaceStr, "@ 0x%08zX  StaticHeader\n", offset);
+					StaticHeader * statich = (StaticHeader *)&fileData[offset];
+					sscatprintf(watchFaceStr, "statich.type    0x%04X\n", statich->type);
+					sscatprintf(watchFaceStr, "statich.xy      %3u, %3u\n", statich->xy.x, statich->xy.y);
+					sscatprintf(watchFaceStr, "statich.owh     0x%08X, %3u, %3u\n", statich->offset, statich->width, statich->height);
+				}
+				offset += sizeof(StaticHeader);
 				break;
 			case 0x0101:
 				// TimeHeader. Analog-only watchfaces don't have one.				
@@ -403,28 +428,12 @@ int main(int argc, char * argv[]) {
 					sscatprintf(watchFaceStr, "timeh.owh[%zu]    0x%08X, %3u, %3u\n", i, timeh->owh[i].offset,  timeh->owh[i].width, timeh->owh[i].height);
 				}
 				offset += sizeof(TimeHeader);
-				if(timeh->subtype == 1) { // if subtype is 1 it's actually a DayNumHeader
-					//offset += 2;
-				}
-				break;
-			case 0x0001:
-				// StaticHeader
-				if(offset == h->bhOffset) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  StaticHeader (Background)\n", offset);
-				} else {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  StaticHeader\n", offset);
-					StaticHeader * statich = (StaticHeader *)&fileData[offset];
-					sscatprintf(watchFaceStr, "statich.type    0x%04X\n", statich->type);
-					sscatprintf(watchFaceStr, "statich.xy      %3u, %3u\n", statich->xy.x, statich->xy.y);
-					sscatprintf(watchFaceStr, "statich.owh     0x%08X, %3u, %3u\n", statich->offset, statich->width, statich->height);
-				}
-				offset += sizeof(StaticHeader);
 				break;
 			case 0x0201:
 				// TimePosHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  TimePosHeader\n", offset);
 				offset += sizeof(TimePosHeader);
-				break;
+				break;				
 			case 0x0401:
 				// DayNameHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  DayNameHeader\n", offset);
