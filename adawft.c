@@ -98,13 +98,13 @@ typedef struct _StaticHeader {
 	u16 height;				// height of image
 } StaticHeader;
 
-// TimePosHeader is the location of the time (HHMM) digits on the screen
-typedef struct _TimePosHeader {
+// TimeHeader is the location of the time (HHMM) digits on the screen
+typedef struct _TimeHeader {
 	u16 type;				// 0x0201
 	u32 unknown;			// 0
 	XY xy[4];				// x and y position of the four time digits HHMM
 	u8 padding[12];			// 0
-} TimePosHeader;
+} TimeHeader;
 
 // DayNameHeader is for days Mon, Tue, Wed, Thu, Fri, Sat, Sun.
 typedef struct _DayNameHeader {
@@ -449,9 +449,9 @@ int main(int argc, char * argv[]) {
 				offset += sizeof(DigitHeader);
 				break;
 			case 0x0201:
-				// TimePosHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  TimePosHeader\n", offset);
-				offset += sizeof(TimePosHeader);
+				// TimeHeader
+				sscatprintf(watchFaceStr, "@ 0x%08zX  TimeHeader\n", offset);
+				offset += sizeof(TimeHeader);
 				break;				
 			case 0x0401:
 				// DayNameHeader
