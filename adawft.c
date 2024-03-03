@@ -74,20 +74,20 @@ typedef struct _FaceHeaderN {
 	u16 unknown2;			// 0
 	u16 unknown3;			// 8C 00
 	u16 unknown4;			// A3 00
-	u16 thOffset;			// Offset of the TimeHeader. Usually 0x0010. Seen as 0x0000 for an analog-only watchface using API10.
+	u16 thOffset;			// Offset of the DigitHeader. Usually 0x0010. Seen as 0x0000 for an analog-only watchface using API10.
 	u16 bhOffset;			// Offset of the background image (a StaticHeader)
 } FaceHeaderN;
 
-// TimeHeader(s) are typically located between the FaceHeader and the background image header
+// DigitHeader(s) are typically located between the FaceHeader and the background image header
 
-// Digital clocks have a TimeHeader, Analog-Only clocks don't.
+// Digital clocks have a DigitHeader, Analog-Only clocks don't.
 // Can be time (HHMM) digits, or day number (DD) digits
-typedef struct _TimeHeader {
+typedef struct _DigitHeader {
 	u16 type;				// 0x0101
 	u8 subtype;				// 0 for Time digits, 1 for DayNum digits
 	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
 	u8 unknown2[2];			// 0
-} TimeHeader;
+} DigitHeader;
 
 // StaticHeader is for static images (e.g. the background)
 typedef struct _StaticHeader {
@@ -429,15 +429,15 @@ int main(int argc, char * argv[]) {
 				offset += sizeof(StaticHeader);
 				break;
 			case 0x0101:
-				// TimeHeader. Analog-only watchfaces don't have one.				
-				// bool hasTimeHeader = (h->thOffset != 0);
-				TimeHeader * timeh = (TimeHeader *)&fileData[offset];
+				// DigitHeader. Analog-only watchfaces don't have one.				
+				// bool hasDigitHeader = (h->thOffset != 0);
+				DigitHeader * timeh = (DigitHeader *)&fileData[offset];
 				if(timeh->subtype == 0) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  TimeHeader (Time)\n", offset);
+					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitHeader (Time)\n", offset);
 				} else if(timeh->subtype == 1) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  TimeHeader (DayNum)\n", offset);
+					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitHeader (DayNum)\n", offset);
 				} else {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  TimeHeader (UNKNOWN type %u)\n", offset, timeh->subtype);
+					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitHeader (UNKNOWN type %u)\n", offset, timeh->subtype);
 				}
 				for(size_t i=0; i<10; i++) {
 					sscatprintf(watchFaceStr, "timeh.owh[%zu]    0x%08X, %3u, %3u\n", i, timeh->owh[i].offset,  timeh->owh[i].width, timeh->owh[i].height);
@@ -446,7 +446,7 @@ int main(int argc, char * argv[]) {
 						dumpImage(dfnBuf, &fileData[timeh->owh[i].offset], timeh->owh[i].height);
 					}					
 				}
-				offset += sizeof(TimeHeader);
+				offset += sizeof(DigitHeader);
 				break;
 			case 0x0201:
 				// TimePosHeader
