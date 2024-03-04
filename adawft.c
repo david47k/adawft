@@ -71,23 +71,23 @@ typedef struct _FaceHeaderN {
 	u16 apiVer;				// api_ver
 	u16 unknown0;			// FF FF
 	u16 unknown1;			// 0x61F4 or 0x93A4 (for example)
-	u16 unknown2;			// 0
+	u16 unknown2;			// 0 or 1 or 2
 	u16 unknown3;			// 8C 00
 	u16 unknown4;			// A3 00
-	u16 thOffset;			// Offset of the DigitHeader. Usually 0x0010. Seen as 0x0000 for an analog-only watchface using API10.
+	u16 dhOffset;			// Offset of the DigitsHeader(s). Usually 0x0010. Seen as 0x0000 for an analog-only watchface using API10.
 	u16 bhOffset;			// Offset of the background image (a StaticHeader)
 } FaceHeaderN;
 
-// DigitHeader(s) are typically located between the FaceHeader and the background image header
+// DigitsHeader(s) are typically located between the FaceHeader and the background image header
 
-// Digital clocks have a DigitHeader, Analog-Only clocks don't.
+// Digital clocks have a DigitsHeader, Analog-Only clocks don't.
 // Can be time (HHMM) digits, or day number (DD) digits
-typedef struct _DigitHeader {
+typedef struct _DigitsHeader {
 	u16 type;				// 0x0101
-	u8 subtype;				// 0 for Time digits, 1 for DayNum digits, 2 for Steps digits
+	u8 subtype;				// 0 for Time digits, 1 for DayNum digits, 2 for Steps? digits?
 	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
 	u8 unknown2[2];			// 0
-} DigitHeader;
+} DigitsHeader;
 
 // StaticHeader is for static images (e.g. the background)
 typedef struct _StaticHeader {
@@ -101,7 +101,7 @@ typedef struct _StaticHeader {
 // TimeHeader is the location of the time (HHMM) digits on the screen
 typedef struct _TimeHeader {
 	u16 type;				// 0x0201
-	u32 unknown;			// 0
+	u8 unknown[4];			// 0 or 1, probably which digit font set to use for each digit
 	XY xy[4];				// x and y position of the four time digits HHMM
 	u8 padding[12];			// 0
 } TimeHeader;
@@ -132,7 +132,8 @@ typedef struct _BatteryFillHeader {
 // Heart rate displayed as a number
 typedef struct _HeartRateNumHeader {
 	u16 type;				// 0x0601
-	u16 unknown;			// 0x0201
+	u8 digitSet;			// suspected digit set # (font)
+	u8 justification;		// suspect justification (L, R, C)
 	XY xy;					// xy, centered text in this case
 	u8 unknown2[18];		// 0
 } HeartRateNumHeader;
@@ -140,7 +141,8 @@ typedef struct _HeartRateNumHeader {
 // Number of steps done today
 typedef struct _StepsNumHeader {
 	u16 type;				// 0x0701
-	u16 unknown;			// 02 02
+	u8 digitSet;			// suspected digit set # (font)
+	u8 justification;		// suspect justification (L, R, C)
 	XY xy;					// X and Y of the steps number
 	u8 unknown2[18];		// 0
 } StepsNumHeader;
@@ -148,7 +150,8 @@ typedef struct _StepsNumHeader {
 // KCal displayed as a number
 typedef struct _KCalHeader {
 	u16 type;				// 0x0901
-	u16 unknown;			// 0x0201
+	u8 digitSet;			// suspected digit set # (font)
+	u8 justification;			// suspect justification (L, R, C)
 	XY xy;					// xy, centered text in this case
 	u8 unknown2[11];		// 0, size could be wrong
 } KCalHeader;
@@ -168,14 +171,16 @@ typedef struct _HandsHeader {
 // This unknown header has been seen in API 13 and 15.
 typedef struct _DayNumHeader {
 	u16 type;				// 0x0D01
-	u16 unknown;			// 01 01 or 02 02
+	u8 digitSet;			// suspected digit set # (font)
+	u8 justification;		// suspect justification (L, R, C)
 	XY xy[2];				// XY of each digit in the day number (of the month)
 } DayNumHeader;
 
 // Month as a number
 typedef struct _MonthNumHeader {
 	u16 type;				// 0x0F01
-	u16 unknown;			// 02 02
+	u8 digitSet;			// suspected digit set # (font)
+	u8 justification;		// suspect justification (L, R, C)
 	XY xy[2];				// XY of the two month digits
 } MonthNumHeader;
 
@@ -188,15 +193,43 @@ typedef struct _BarDisplayHeader {
 	OffsetWidthHeight owh[1];	// there are *COUNT* number of entries! (not just 1!)
 } BarDisplayHeader;
 
-// Used when the minute digits are different to the hour digits
-typedef struct _AltDigitHeader {
-	u16 type;				// 0x1401
-	u8 hiBytesOffset0;		// Looks like they stuffed up this item and didn't allow enough bytes to store the full offset!
-	XY xy0;					// xy of the first digit (zero?)
+// Used when the minute digits are different to the hour digits (0x1401)
+// Unknown use: (0xEC02)
+typedef struct _AltDigitsHeader {
+	u16 type;				// 0x1401 (typ. mins) or 0xEC02 (??) or 0x4C01 (??)
+	u8 hiBytesOffset0[3];		// Looks like they stuffed up this item and didn't allow enough bytes to store the full offset!
+	u16 width0;				// width of the first digit
+	u16 height0;			// height of the first digit
 	OffsetWidthHeight owh[9];	// For the rest of the digits!
 	u8 loByteOffset0;		// The low byte of the offset for the first digit!
 	u8 unknown;				// 0
-} AltDigitHeader;
+} AltDigitsHeader;
+
+// We can remap the above to a saner format
+typedef struct _AltDigitsHeaderSane {
+	u16 type;				// 0x1401
+	OffsetWidthHeight owh[10];	// For all the digits
+	u8 unknown;				// 0
+} AltDigitsHeaderSane;
+
+typedef struct _WeatherHeader {
+	u16 type;				// 0x1B01
+	u8 subtype;				// subtype or count? e.g. 9
+	XY xy;
+	OffsetWidthHeight owh[9];	
+} WeatherHeader;
+
+typedef struct _Unknown1D01 {
+	u16 type;				// 0x1D01
+	u8 unknown;				// 2
+} Unknown1D01;
+
+typedef struct _Unknown2301 {
+	u16 type;				// 0x2301
+	u32 offset;
+	u16 width;
+	u16 height;
+} Unknown2301;
 
 #pragma pack (pop)
 
@@ -281,6 +314,17 @@ static int dumpImage(char * filename, u8 * srcData, size_t height) {
 	}
 	printf("OK\n");
 	return 0;
+}
+
+//----------------------------------------------------------------------------
+//  PRINT OFFSET, WIDTH, HEIGHT ARRAY TO STRING
+//----------------------------------------------------------------------------
+
+void printOwh(OffsetWidthHeight * owh, size_t count, const char * name, char * dstBuf, size_t dstBufSize) {
+	for(size_t i=0; i<count; i++) {
+		snprintf(&dstBuf[strlen(dstBuf)], dstBufSize - strlen(dstBuf), 
+			"%s[%zu]    0x%08X, %3u, %3u\n", name, i, owh[i].offset, owh[i].width, owh[i].height);
+	}
 }
 
 //----------------------------------------------------------------------------
@@ -381,7 +425,7 @@ int main(int argc, char * argv[]) {
 	sscatprintf(watchFaceStr, "unknown2        %u\n", h->unknown2);
 	sscatprintf(watchFaceStr, "unknown3        %u\n", h->unknown3);
 	sscatprintf(watchFaceStr, "unknown4        %u\n", h->unknown4);
-	sscatprintf(watchFaceStr, "thOffset        0x%04X\n", h->thOffset);
+	sscatprintf(watchFaceStr, "dhOffset        0x%04X\n", h->dhOffset);
 	sscatprintf(watchFaceStr, "bhOffset        0x%04X\n", h->bhOffset);
 	
 	// Everything should have a background (I hope!)
@@ -407,6 +451,9 @@ int main(int argc, char * argv[]) {
 
 	// Store some counters for filenames
 	u16 staticCounter = 0;
+
+	// Buffer for temporary string data
+	char sbuf[20];
 
 	// Process the different headers
 	size_t offset = sizeof(FaceHeaderN);
@@ -439,24 +486,28 @@ int main(int argc, char * argv[]) {
 				offset += sizeof(StaticHeader);
 				break;
 			case 0x0101:
-				// DigitHeader. Analog-only watchfaces don't have one.				
-				// bool hasDigitHeader = (h->thOffset != 0);
-				DigitHeader * timeh = (DigitHeader *)&fileData[offset];
-				if(timeh->subtype == 0) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitHeader (0: Time)\n", offset);
-				} else if(timeh->subtype == 1) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitHeader (1: DayNum)\n", offset);
+				// DigitsHeader. Analog-only watchfaces don't have one.				
+				// bool hasDigitsHeader = (h->dhOffset != 0);
+				DigitsHeader * dh = (DigitsHeader *)&fileData[offset];
+				if(dh->subtype == 0) {
+					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (0: Time)\n", offset);
+				} else if(dh->subtype == 1) {
+					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (1: DayNum)\n", offset);
 				} else {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitHeader (%u: Unknown)\n", offset, timeh->subtype);
+					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (%u: Unknown)\n", offset, dh->subtype);
 				}
-				for(size_t i=0; i<10; i++) {
-					sscatprintf(watchFaceStr, "timeh.owh[%zu]    0x%08X, %3u, %3u\n", i, timeh->owh[i].offset,  timeh->owh[i].width, timeh->owh[i].height);
-					if(dump) {		
-						sprintf(&dfnBuf[baseSize], "time_%02u_%02zu.bin", timeh->subtype, i);
-						dumpImage(dfnBuf, &fileData[timeh->owh[i].offset], timeh->owh[i].height);
+				// what digit font is it
+				sprintf(sbuf, "digit%u.owh", dh->subtype);
+				// print all the details
+				printOwh(&dh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
+				if(dump) {
+					for(size_t i=0; i<10; i++) {
+						//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
+						sprintf(&dfnBuf[baseSize], "digit_%02u_%02zu.bin", dh->subtype, i);
+						dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].height);
 					}					
 				}
-				offset += sizeof(DigitHeader);
+				offset += sizeof(DigitsHeader);
 				break;
 			case 0x0201:
 				// TimeHeader
@@ -476,11 +527,17 @@ int main(int argc, char * argv[]) {
 			case 0x0601:
 				// HeartRateNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  HeartRateNumHeader\n", offset);
+				HeartRateNumHeader * hrn = (HeartRateNumHeader *)&fileData[offset];
+				sscatprintf(watchFaceStr, "  digitSet: %u\n", hrn->digitSet);
+				sscatprintf(watchFaceStr, "  justification: %u\n", hrn->justification);
 				offset += sizeof(HeartRateNumHeader);
 				break;
 			case 0x0701:
 				// StepsNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  StepsNumHeader\n", offset);
+				StepsNumHeader * sn = (StepsNumHeader *)&fileData[offset];
+				sscatprintf(watchFaceStr, "  digitSet: %u\n", sn->digitSet);
+				sscatprintf(watchFaceStr, "  justification: %u\n", sn->justification);
 				offset += sizeof(StepsNumHeader);
 				break;
 			case 0x0901:
@@ -496,11 +553,17 @@ int main(int argc, char * argv[]) {
 			case 0x0D01:
 				// DayNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  DayNumHeader\n", offset);
+				DayNumHeader * dn = (DayNumHeader *)&fileData[offset];
+				sscatprintf(watchFaceStr, "  digitSet: %u\n", dn->digitSet);
+				sscatprintf(watchFaceStr, "  justification: %u\n", dn->justification);							
 				offset += sizeof(DayNumHeader);
 				break;
 			case 0x0F01:
 				// MonthNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  MonthNumHeader\n", offset);
+				MonthNumHeader * mn = (MonthNumHeader *)&fileData[offset];
+				sscatprintf(watchFaceStr, "  digitSet: %u\n", mn->digitSet);
+				sscatprintf(watchFaceStr, "  justification: %u\n", mn->justification);								
 				offset += sizeof(MonthNumHeader);
 				break;
 			case 0x1201:
@@ -509,11 +572,47 @@ int main(int argc, char * argv[]) {
 				sscatprintf(watchFaceStr, "@ 0x%08zX  BarDisplayHeader. subtype: %u. count: %u.\n", offset, bdh->subtype, bdh->count);
 				offset += sizeof(BarDisplayHeader) + sizeof(OffsetWidthHeight) * (bdh->count-1);
 				break;
+			case 0x1B01:
+				// WeatherHeader
+				WeatherHeader * wh = (WeatherHeader *)&fileData[offset];
+				sscatprintf(watchFaceStr, "@ 0x%08zX  WeatherHeader. subtype: %u.\n", offset, wh->subtype);
+				offset += sizeof(WeatherHeader);
+				break;
+			case 0x1D01:
+				// 
+				Unknown1D01 * u1h = (Unknown1D01 *)&fileData[offset];
+				sscatprintf(watchFaceStr, "@ 0x%08zX  Unknown1D01Header. unknown: %u.\n", offset, u1h->unknown);
+				offset += sizeof(Unknown1D01);
+				break;
+			case 0x2301:
+				// 
+				// Unknown2301 * u2h = (Unknown2301 *)&fileData[offset];
+				sscatprintf(watchFaceStr, "@ 0x%08zX  Unknown2301Header.\n", offset);
+				offset += sizeof(Unknown2301);
+				break;	
 			case 0x1401:
-				// AltDigitHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  AltDigitHeader\n", offset);
-				offset += sizeof(AltDigitHeader);
-				break;				
+			case 0xEC02:
+			case 0x4C01:
+			case 0x8801:
+			case 0x2C01:
+			case 0x6001:
+			case 0xD001:
+				// AltDigitsHeader
+				AltDigitsHeader * adh = (AltDigitsHeader *)&fileData[offset];
+				// Remap it to a sane format
+				AltDigitsHeaderSane sane;
+				sane.type = adh->type;
+				sane.unknown = adh->unknown;
+				sane.owh[0].offset = adh->loByteOffset0 | (adh->hiBytesOffset0[0] << 8) | (adh->hiBytesOffset0[1] << 16)| (adh->hiBytesOffset0[2] << 24);
+				sane.owh[0].width = adh->width0;
+				sane.owh[0].height = adh->height0;
+				memcpy(&sane.owh[1], &adh->owh[0], sizeof(OffsetWidthHeight) * 9);
+				sscatprintf(watchFaceStr, "@ 0x%08zX  AltDigitsHeader (0x%04X)\n", offset, sane.type);
+				sprintf(sbuf, "altDigits.owh");
+				// print all the details
+				printOwh(&sane.owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
+				offset += sizeof(AltDigitsHeader);
+				break;	
 			default:
 				// UNKNOWN DATA
 				sscatprintf(watchFaceStr, "@ 0x%08zX  UNKNOWN TYPE 0x%04X\n", offset, type);
