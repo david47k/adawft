@@ -14,14 +14,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "types.h"
 #include "bytes.h"
 #include "adawft.h"
 #include "bmp.h"
-
-const char * ImgCompressionStr[8] = { "NONE", "RLE_LINE", "RLE_BASIC", "RESERVED", "RESERVED", "RESERVED", "RESERVED", "TRY_RLE" };
-
 
 //----------------------------------------------------------------------------
 //  RGB565 to RGB888 conversion
@@ -111,6 +109,12 @@ void setBMPHeaderV4(BMPHeaderV4 * dest, u32 width, u32 height, u8 bpp) {
 		dest->RGBAmasks[0] = 0xF800;
 		dest->RGBAmasks[1] = 0x07E0;
 		dest->RGBAmasks[2] = 0x001F;	
+	} else if(bpp == 32) {
+		dest->compressionType = 3; 				// 
+		dest->RGBAmasks[0] = 0xFF0000;			// r
+		dest->RGBAmasks[1] = 0x00FF00;			// g
+		dest->RGBAmasks[2] = 0x0000FF;			// b
+		dest->RGBAmasks[3] = 0xFF000000;		// a     ARGB8888 (or BGRA8888)
 	} else if(bpp == 24) {
 		dest->compressionType = 0; 					// BI_RGB=0
 	}
@@ -121,6 +125,36 @@ void setBMPHeaderV4(BMPHeaderV4 * dest, u32 width, u32 height, u8 bpp) {
 }
 
 
+// Set up a BMP header. bpp must be 16 or 24.
+void setBMPHeaderV5(BMPHeaderV5 * dest, u32 width, u32 height, u8 bpp) {
+	*dest = (BMPHeaderV5){ 0 };
+	dest->sig = 0x4D42;
+	dest->offset = sizeof(BMPHeaderV5);
+	dest->dibHeaderSize = 108 + 16; 						// 
+	dest->width = (i32)width;
+	dest->height = -(i32)height;
+	dest->planes = 1;
+	dest->bpp = bpp;
+	u32 rowSize = (((bpp/8) * width) + 3) & 0xFFFFFFFC;
+	if(bpp == 16) {
+		dest->compressionType = 3; 					// BI_BITFIELDS=3
+		dest->RGBAmasks[0] = 0xF800;
+		dest->RGBAmasks[1] = 0x07E0;
+		dest->RGBAmasks[2] = 0x001F;	
+	} else if(bpp == 32) {
+		dest->compressionType = 3; 				// 
+		dest->RGBAmasks[0] = 0xFF0000;			// r
+		dest->RGBAmasks[1] = 0x00FF00;			// g
+		dest->RGBAmasks[2] = 0x0000FF;			// b
+		dest->RGBAmasks[3] = 0xFF000000;		// a     ARGB8888 (or BGRA8888)
+	} else if(bpp == 24) {
+		dest->compressionType = 0; 					// BI_RGB=0
+	}
+	dest->imageDataSize = rowSize * height;
+	dest->fileSize = dest->imageDataSize + sizeof(BMPHeaderV5);
+	dest->hres = 2835;								// 72dpi
+	dest->vres = 2835;								// 72dpi
+}
 //----------------------------------------------------------------------------
 //  DUMPBMP - dump binary data to bitmap file
 //----------------------------------------------------------------------------
@@ -300,14 +334,67 @@ int dumpBMP16(char * filename, u8 * srcData, size_t srcDataSize, u32 imgWidth, u
 	return 0; // SUCCESS
 }
 
+// imgToBMP
+
+Bytes * imgToBMP(const Img * srcImg) {	
+	BMPHeaderV5 bmpHeader;
+	setBMPHeaderV5(&bmpHeader, srcImg->w, srcImg->h, 32);
+
+	Img * img = cloneImg(srcImg);
+	if(img == NULL) {
+		printf("ERROR: running cloneImg\n");
+		return NULL;
+	}
+
+	// Only works with ARGB8888 images for now, so we'll convert source image into this format
+	if(srcImg->format != IF_ARGB8888) {
+		img = convertImg(img, IF_ARGB8888);
+		if(img == NULL) {
+			printf("ERROR: running convertImg\n");
+			return NULL;
+		}
+	}
+	
+	// row width is equal to imageDataSize / imgHeight
+	u32 destRowSize = bmpHeader.imageDataSize / img->h;
+
+	u8 buf[16384];
+	if(destRowSize > sizeof(buf)) {
+		printf("ERROR: Image width exceeds buffer size!\n");
+		return NULL;
+	}
+
+	// Create some bytes to store the BMP
+	Bytes * b = malloc(sizeof(Bytes) + bmpHeader.fileSize);
+	b->size = bmpHeader.fileSize;
+	if(b==NULL) {
+		printf("ERROR: Couldn't allocate memory!\n");
+		return NULL;
+	}
+
+	// write the header 	
+	memcpy(b->data, &bmpHeader, sizeof(bmpHeader));
+	size_t offset = sizeof(bmpHeader);
+	
+	// for each row
+	for(u32 y=0; y < img->h; y++) {
+		// copy entire row
+		memcpy(&b->data[offset], &img->data[y * img->w * 4], img->w * 4);
+		offset += destRowSize;
+	}
+
+	return b; // SUCCESS
+}
+
+
+
 
 //----------------------------------------------------------------------------
 //  IMG, newIMG, deleteIMG - read bitmap file into basic RGB565 data format
 //----------------------------------------------------------------------------
 
 // Allocate Img and fill it with pixels from a bmp file. Returns NULL for failure. Delete with deleteImg.
-// If bmp file has alpha, and backgroundImg != NULL, use the alpha channel to blend.
-Img * newImgFromFile(char * filename, Img * backgroundImg, u32 bpx, u32 bpy) {
+Img * newImgFromFile(char * filename) {
     // read in the whole file
 	Bytes * bytes = newBytesFromFile(filename);
 	if(bytes==NULL) {
@@ -401,8 +488,14 @@ Img * newImgFromFile(char * filename, Img * backgroundImg, u32 bpx, u32 bpy) {
 	}
 	img->w = (u32)h->width;
 	img->h = (u32)h->height;
-	img->compression = 0;			// No compression
-	img->size = img->w * img->h * 2;	// Size is simple to calculate when no compression
+	if(h->bpp == 16) {
+		img->format = IF_ARGB8565;			// We'll read it into this format
+		img->size = img->w * img->h * 2;
+	} else { // bpp = 24 or 32
+		img->format = IF_ARGB8888;			// We'll read it into this format
+		img->size = img->w * img->h * 4;	// Size is simple to calculate when no compression
+	}
+
 	img->data = malloc(img->size);
 	if(img->data == NULL) {
 		printf("ERROR: Out of memory.\n");
@@ -413,6 +506,8 @@ Img * newImgFromFile(char * filename, Img * backgroundImg, u32 bpx, u32 bpy) {
 
 	// Reading the file data depends on bpp
 	if(h->bpp == 16) { // RGB565
+		printf("WARNING: THIS CODE FOR RGB565 IS UNTESTED!...\n");
+
 		// check bitfields are what we expect
 		if(bytes->size < sizeof(BMPHeaderClassic)) {
 			printf("ERROR: BMP file is too short to contain bitfields.\n");
@@ -431,19 +526,22 @@ Img * newImgFromFile(char * filename, Img * backgroundImg, u32 bpx, u32 bpy) {
 		for(u32 y = 0; y < img->h; y++) {
 			u32 row = topDown ? y : (img->h - y - 1);	// row is line in BMP file, y is line in our img
 			size_t bmpOffset = h->offset + row * rowSize;
-			memcpy(&img->data[y * img->w * 2], &bytes->data[bmpOffset], img->w * 2);
-			// swap byte order
-			for(u32 j=0; j<(img->w*2); j+=2) {
-				u8 * a = &img->data[y*img->w*2 + j];
-				u8 * b = &img->data[y*img->w*2 + j + 1];
-				u8 temp = *a;
-				*a = *b;
-				*b = temp;
+			// for each pixel in this row
+			for(size_t x=0; x<img->w; x++) {
+				// read the pixel 565
+				u8 a = bytes->data[bmpOffset + 2*x];
+				u8 b = bytes->data[bmpOffset + 2*x + 1] ;
+				// set the pixel 8565, full alpha
+				u8 destData[3];
+				destData[0] = 0xFF;	// full alpha
+				destData[1] = a;
+				destData[2] = b;
+				memcpy(&img->data[(y * img->w + x) * 3], destData, 3);
 			}
 		}
 
 		// done!
-	} else if (h->bpp == 32 && backgroundImg != NULL && h->dibHeaderSize > 40) { 	// ARGB8888 to be blended against backgroundImg
+	} else if (h->bpp == 32 && h->dibHeaderSize > 40) { 	// ARGB8888
 		BMPHeaderV4 * h4 = (BMPHeaderV4 *)&h;
 		// check bitfields (if they exist) are what we expect
 		if(h->compressionType == 3) {
@@ -455,31 +553,14 @@ Img * newImgFromFile(char * filename, Img * backgroundImg, u32 bpx, u32 bpy) {
 			}
 		}
 
-	    // read in data, row by row, pixel by pixel
+	    // read in data, row by row
 		for(u32 y=0; y < img->h; y++) {
 			u32 row = topDown ? y : (img->h - y - 1);
 			size_t bmpOffset = h->offset + row * rowSize;
-			for(u32 x=0; x < img->w; x++) {
-				// get partner pixel from backgroundImg
-				u16 pixelIn = get_u16(&backgroundImg->data[2 * backgroundImg->w * (bpy+y) + 2 * (bpx+x)]);
-				RGBTrip bgPixel = RGB565to888(pixelIn);
-
-				// get bmp pixel
-				u8 b = bytes->data[bmpOffset + x * 4];
-				u8 g = bytes->data[bmpOffset + x * 4 + 1];
-				u8 r = bytes->data[bmpOffset + x * 4 + 2];
-				u8 a = bytes->data[bmpOffset + x * 4 + 3];
-
-				bgPixel.r = (u8)(((u32)(255 - a) * (u32)bgPixel.r + (u32)a * (u32)r) / 255);
-				bgPixel.g = (u8)(((u32)(255 - a) * (u32)bgPixel.g + (u32)a * (u32)g) / 255);
-				bgPixel.b = (u8)(((u32)(255 - a) * (u32)bgPixel.b + (u32)a * (u32)b) / 255);
-
-				u16 pixelOut = RGBTripTo565(&bgPixel);
-				img->data[y * img->w * 2 + 2 * x]     = pixelOut >> 8;
-				img->data[y * img->w * 2 + 2 * x + 1] = pixelOut & 0xFF;
-			}
+			// copy the row across directly
+			memcpy(&img->data[y * img->w * 4], &bytes->data[bmpOffset], img->w * 4);
 		}
-	} else { // RGB888 (or ARGB8888 with no background to blend against)
+	} else { // RGB888
 		// check bitfields (if they exist) are what we expect
 		if(h->compressionType == 3) {
 			if(h->bmiColors[0] != 0xFF0000 || h->bmiColors[1] != 0x00FF00 || h->bmiColors[2] != 0x0000FF) {
@@ -495,14 +576,15 @@ Img * newImgFromFile(char * filename, Img * backgroundImg, u32 bpx, u32 bpy) {
 			u32 row = topDown ? y : (img->h - y - 1);
 			size_t bmpOffset = h->offset + row * rowSize;
 			for(u32 x=0; x < img->w; x++) {
-				u16 pixel;
-				if(h->bpp == 24) {
-					pixel = RGB888to565(&bytes->data[bmpOffset + x * 3]);
-				} else { // h->bpp == 32
-					pixel = RGB888to565(&bytes->data[bmpOffset + x * 4]); // ignore alpha channel
-				}
-				img->data[y * img->w * 2 + 2 * x]     = pixel >> 8;
-				img->data[y * img->w * 2 + 2 * x + 1] = pixel & 0xFF;
+				// RGB888 to ARGB8565 conversion
+				u32 pixel = 0xFF; // set alpha
+				pixel <<= 8;		
+				pixel |= bytes->data[bmpOffset + x * 3];
+				pixel <<= 8;
+				pixel |= bytes->data[bmpOffset + x * 3 + 1];
+				pixel <<= 8;
+				pixel |= bytes->data[bmpOffset + x * 3 + 2];
+				memcpy(&img->data[(y * img->w + x) * 4], &pixel, 4);
 			}
 		}
 	}
@@ -527,7 +609,7 @@ Img * deleteImg(Img * i) {
 	return i;
 }
 
-Img * cloneImg(Img * i) {
+Img * cloneImg(const Img * i) {
 	// Allocate memory to store ImageData and data
 	Img * img = malloc(sizeof(Img));
 	if(img == NULL) {
@@ -536,7 +618,7 @@ Img * cloneImg(Img * i) {
 	}	
 	img->w = i->w;
 	img->h = i->h;
-	img->compression = i->compression;
+	img->format = i->format;
 	img->size = i->size;
 	img->data = malloc(img->size);
 	if(img->data == NULL) {
@@ -548,110 +630,163 @@ Img * cloneImg(Img * i) {
 	return img;
 }
 
+Img * convertImg(Img * i, ImgFormat newFormat) {
+	// Convert between different image formats
+	// Our converters will be ARGB8888 <> ARGB8565
+	// and RLE_NEW <> ARGB8565
+	// We will re-call ourselves to do ARGB8888 <> RLE_NEW
 
-//----------------------------------------------------------------------------
-//  COMPRESS IMG - Compress using (RLE_LINE) if it shrinks the size
-//----------------------------------------------------------------------------
- 
-int compressImg(Img * img) {
-	// Check it is a raw img we got
-	if(img == NULL || img->compression != 0) {
-		return 100;
-	}
-
-	// Check the image isn't too big
-	//               ...header size..   ..minimum rle units. 3bpu 
-	size_t minSize = (2 + img->h * 2) + (img->w + 255) / 255 * 3 * img->h;
-
-	if(minSize > 65535) { // we can't store 16-bit offsets in a bigger file
-		printf("Note: Image too large to be RLE_LINE encoded.\n");
-		return 101;
-	}
-
-	size_t maxSize = (2 + img->h * 2) + (img->w * img->h * 3); // worst case
-
-	// Allocate a stack of RAM to keep the image in
-	u8 * buf = malloc(maxSize);
-	if(buf==NULL) {
-		printf("ERROR: Out of memory (allocating %zu bytes).\n", maxSize);
-		return 102;
-	}
-
-	// Set identifier as RLE image
-	buf[0] = 0x08;
-	buf[1] = 0x21;
-
-	// Calculate offset
-	u32 offset = 2 + 2 * img->h;	// id is 2 bytes, offsets are u16 and are of the end of line / running offset
-
-	// For each line
-	for(u32 y=0; y<img->h; y++) {
-		u8 prev[2] = { 0 };
-		u8 runLength = 0;
-		for(u32 x=0; x<img->w; x++) {
-			u8 curr[2];
-			curr[0] = img->data[y*img->w*2 + x*2];
-			curr[1] = img->data[y*img->w*2 + x*2 + 1];
-			if(x==0) {
-				prev[0] = curr[0];
-				prev[1] = curr[1];
-				runLength = 1;
-				continue;
-			} 
-			if(curr[0] != prev[0] || curr[1] != prev[1]) {
-				// end the run and start a new one
-				buf[offset]   = prev[0];
-				buf[offset+1] = prev[1];
-				buf[offset+2] = runLength;
-				offset += 3;
-				prev[0] = curr[0];
-				prev[1] = curr[1];
-				runLength = 1;
-			} else {
-				// increase the run
-				runLength ++;
-				if(runLength==255) {
-					// save and restart the run
-					buf[offset]   = prev[0];
-					buf[offset+1] = prev[1];
-					buf[offset+2] = runLength;
-					offset += 3;
-					runLength = 0;
-				}
+	if(newFormat == IF_ARGB8888) {
+		if(i->format == IF_RLE_NEW) {
+			// Convert to ARGB8565 first
+			i = convertImg(i, IF_ARGB8565);
+			if(i == NULL) {
+				return i;
 			}
 		}
-		// save remaining run, if anything
-		if(runLength > 0) {
-			buf[offset]   = prev[0];
-			buf[offset+1] = prev[1];
-			buf[offset+2] = runLength;
-			offset += 3;
+		if(i->format == IF_ARGB8565) {
+			// increase bit depth
+			Img * newImg = malloc(sizeof(Img));
+			if(newImg == NULL) {
+				printf("ERROR: Out of memory\n");
+				deleteImg(i);
+				return NULL;
+			}
+			newImg->w = i->w;
+			newImg->h = i->h;
+			newImg->format = newFormat;
+			newImg->size = i->w * i->h * 4;
+			newImg->data = malloc(newImg->size);
+			if(newImg->data == NULL) {
+				printf("ERROR: Out of memory\n");
+				deleteImg(i);
+				deleteImg(newImg);
+				return NULL;
+			}
+			// Go row by row, pixel by pixel
+			for(size_t y=0; y<i->h; y++) {
+				for(size_t x=0; x<i->w; x++) {
+					u8 * p = &i->data[i->w * y * 3 + x * 3];
+					ARGB8888 * output = (ARGB8888 *)&newImg->data[(i->w * y + x) * 4];
+					// Read in 3 bytes, convert to 4 bytes
+					// Alpha byte is the same, RGB parts need converting from 565 to 888
+					output->a = p[0];
+					RGBTrip rgb = RGB565to888(get_u16(&p[1]));
+					output->r = rgb.r;
+					output->g = rgb.g;
+					output->b = rgb.b;
+				}
+			}
+			deleteImg(i);
+			return(newImg);
 		}
-		// save offset
-		if(offset > 65535) {	// Image exceeded RLE_LINE capabilities. We can't store offsets greater than 16-bits!
-			free(buf);
-			return 0; // success, but not compressed
+	}	
+	if(newFormat == IF_ARGB8565) {
+		if(i->format == IF_ARGB8888) {
+			// reduce bit depth
+			Img * newImg = malloc(sizeof(Img));
+			if(newImg == NULL) {
+				printf("ERROR: Out of memory\n");
+				deleteImg(i);
+				return NULL;
+			}
+			newImg->w = i->w;
+			newImg->h = i->h;
+			newImg->format = newFormat;
+			newImg->size = i->w * i->h * 3;
+			newImg->data = malloc(newImg->size);
+			if(newImg->data == NULL) {
+				printf("ERROR: Out of memory\n");
+				deleteImg(i);
+				deleteImg(newImg);
+				return NULL;
+			}
+			// Go row by row, pixel by pixel
+			for(size_t y=0; y<i->h; y++) {
+				for(size_t x=0; x<i->w; x++) {
+					u8 * p = &i->data[(i->w * y + x) * 4];
+					u8 * output = &newImg->data[(i->w * y + x) * 3];
+					// Converting ARGB8888 to ARGB8565
+					// Convert 4 bytes to 3 bytes
+					// Alpha byte is the same
+					output[0] = p[0];
+					u16 rgb565 = RGB888to565(&p[1]);
+					output[1] = (rgb565 & 0xFF); 			// lo byte
+					output[2] = (rgb565 >> 8);				// hi byte
+				}
+			}
+			deleteImg(i);
+			return(newImg);
 		}
-		set_u16(&buf[2+y*2], (u16)offset);
-	}
+		if(i->format == IF_RLE_NEW) {
+			// allocate memory for the new image
+			Img * newImg = malloc(sizeof(Img));
+			if(newImg == NULL) {
+				printf("ERROR: Out of memory\n");
+				deleteImg(i);
+				return NULL;
+			}
+			newImg->w = i->w;
+			newImg->h = i->h;
+			newImg->format = newFormat;
+			newImg->size = i->w * i->h * 3;
+			newImg->data = malloc(newImg->size);
+			if(newImg->data == NULL) {
+				printf("ERROR: Out of memory\n");
+				deleteImg(i);
+				deleteImg(newImg);
+				return NULL;
+			}
+			
+			// decompress the data
+			size_t bytesOut = 0;
+			size_t bytesIn = 0;
 
-	// Check if the size is better
-	if(offset >= img->size) {
-		free(buf);
-		return 0; // success, but not compressed
+			while(bytesIn < i->size) {
+				u8 cmd = i->data[bytesIn]; 		// read a byte
+				bytesIn++;				
+				if((cmd & 0x80) != 0) { // Repeat the pixel
+					size_t count = (cmd & 0x7F);
+					// printf("1:%zu ", count*3);
+					u8 data[3];
+					data[0] = i->data[bytesIn]; 
+					data[1] = i->data[bytesIn+1];
+					data[2] = i->data[bytesIn+2];
+					bytesIn += 3;
+					for(size_t j=0; j<count; j++) {
+						newImg->data[bytesOut]   = data[0]; 
+						newImg->data[bytesOut+1] = data[1]; 
+						newImg->data[bytesOut+2] = data[2]; 
+						bytesOut += 3;
+					}
+				} else { // Normal pixel data
+					size_t count = cmd * 3;
+					//printf("0:%zu ", count);
+					memcpy(&newImg->data[bytesOut], &i->data[bytesIn], count);
+					bytesOut += count;
+					bytesIn += count;
+				}
+			}
+			deleteImg(i);
+			return newImg;
+		}
 	}
-
-	// Free the original data and store the new data
-	buf = realloc(buf, offset);	// remove any excess memory allocation
-	if(buf == NULL) {
-		printf("ERROR: realloc() failure.\n");
-		return 5;
+	if(newFormat == IF_RLE_NEW) {
+		if(i->format == IF_ARGB8888) {
+			// reduce bit depth first
+			i = convertImg(i, IF_ARGB8565);
+			if(i == NULL) {
+				return NULL;
+			}
+		}
+		if(i->format == IF_ARGB8565) {		
+			// compress it
+			printf("ERROR: COMPRESSION NOT YET IMPLEMENTED\n");
+			return NULL;
+		}
 	}
-	
-	free(img->data);
-	img->data = buf;
-	img->size = offset;
-	img->compression = RLE_LINE;
-	return 0;
+	// If we get here, it was a weird request (or a bug)
+	printf("ERROR: Reached unexpected point in convertImg\n");
+	deleteImg(i);
+	return NULL;
 }
-

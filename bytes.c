@@ -65,3 +65,39 @@ Bytes * deleteBytes(Bytes * b) {
 	}
 	return b;
 }
+
+//----------------------------------------------------------------------------
+//  SAVEBYTESTOFILE - save blob to file
+//----------------------------------------------------------------------------
+
+int saveBytesToFile(const Bytes * b, char * fileName) {
+	// open the dump file
+	FILE * dumpFile = fopen(fileName, "wb");
+	if(dumpFile == NULL) {
+		return 1;	// FAILED
+	}
+	int idx = 0;
+	size_t length = b->size;
+
+	// write the data to the dump file
+	while(length > 0) {
+		size_t bytesToWrite = 4096;
+		if(length < bytesToWrite) {
+			bytesToWrite = length;
+		}
+
+		size_t rval = fwrite(&b->data[idx],1,bytesToWrite,dumpFile);
+		if(rval != bytesToWrite) {
+			fclose(dumpFile);
+			remove(fileName);
+			return 2;	// FAILED
+		}
+		idx += bytesToWrite;
+		length -= bytesToWrite;
+	}
+
+	// close the dump file
+	fclose(dumpFile);
+
+	return 0; // SUCCESS
+}

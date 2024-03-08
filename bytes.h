@@ -16,3 +16,4 @@ typedef struct _Bytes {
 
 Bytes * newBytesFromFile(char * filename);
 Bytes * deleteBytes(Bytes * b);
+int saveBytesToFile(const Bytes * b, char * filename);
