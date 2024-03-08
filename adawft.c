@@ -25,26 +25,14 @@
 #include <sys/stat.h>		// for mkdir()
 #include <assert.h>
 
+#include "types.h"
 #include "face_new.h"
 #include "adawft.h"
 #include "bytes.h"
 #include "bmp.h"
+#include "dump.h"
 #include "strutil.h"
 
-
-//----------------------------------------------------------------------------
-//  DATA READING AND BYTE ORDER
-//----------------------------------------------------------------------------
-
-static int systemIsLittleEndian() {				// return 0 for big endian, 1 for little endian.
-    volatile uint32_t i=0x01234567;
-    return (*((volatile uint8_t*)(&i))) == 0x67;
-}
-
-inline void set_u16(u8 * p, u16 v) {
-    p[0] = v&0xFF;
-    p[1] = v>>8;
-}
 
 //----------------------------------------------------------------------------
 //  API_VER_INFO - information about each API level
@@ -69,281 +57,6 @@ static const ApiVerInfo API_VER_INFO[] = {
 
 
 //----------------------------------------------------------------------------
-//  DUMPBLOB - dump binary data to file
-//----------------------------------------------------------------------------
-
-static int dumpBlob(char * fileName, u8 * srcData, size_t length) {
-	// open the dump file
-	FILE * dumpFile = fopen(fileName,"wb");
-	if(dumpFile==NULL) {
-		return 1;	// FAILED
-	}
-	int idx = 0;
-
-	// write the data to the dump file
-	while(length > 0) {
-		size_t bytesToWrite = 4096;
-		if(length < bytesToWrite) {
-			bytesToWrite = length;
-		}
-
-		size_t rval = fwrite(&srcData[idx],1,bytesToWrite,dumpFile);
-		if(rval != bytesToWrite) {
-			fclose(dumpFile);
-			remove(fileName);
-			return 2;	// FAILED
-		}
-		idx += bytesToWrite;
-		length -= bytesToWrite;
-	}
-
-	// close the dump file
-	fclose(dumpFile);
-
-	return 0; // SUCCESS
-}
-
-
-//----------------------------------------------------------------------------
-//  DUMPIMAGE - dump binary data to file
-//----------------------------------------------------------------------------
-
-typedef enum _Format {
-	FMT_RAW = 0,
-	FMT_SEMI = 1,
-	FMT_BMP = 2,
-} Format;
-
-static int dumpImageRaw(char * filename, u8 * srcData, size_t height) {
-	// Calculate the size of the data when the image header is offsets + sizes
-	size_t lastHeaderEntry = (height * 4) - 4;
-	u8 * lastHeaderEntryPtr = &srcData[lastHeaderEntry];
-	u16 lastOffset = get_u16(lastHeaderEntryPtr);		// Not sure how these offsets work yet
-	u16 lastSize = get_u16(&lastHeaderEntryPtr[2]);
-	// The size is stored as a multiple of 32!. This suggests the lowest five bits may be used for something else.
-	if((lastSize&0x001F) != 0) {
-		printf("ERROR: Image size has unexpected data in the bottom 5 bits! 0x%02X\n", lastSize&0x001F);
-		return 1;
-	}
-	size_t imageSize = lastOffset + (lastSize / 32);
-	printf("Dumping %s (%zu bytes) ... ", filename, imageSize);	
-	
-	int r = dumpBlob(filename, srcData, imageSize);
-	if(r!=0) {
-		printf("ERROR: dumpImage failed (%d)\n", r);
-		return 1;
-	}
-	printf("OK\n");
-	return 0;
-}
-
-
-static int dumpImageSemi(char * filename, u8 * srcData, size_t width, size_t height) {
-	// Calculate the size of the data when the image header is offsets + sizes
-	size_t headerSize = height * 4;
-	u8 * lastHeaderEntryPtr = &srcData[headerSize - 4];
-	u16 lastOffset = get_u16(lastHeaderEntryPtr);
-	u16 lastSize = get_u16(&lastHeaderEntryPtr[2]);
-	
-	// The size is stored as a multiple of 32!. This suggests the lowest five bits may be used for something else.
-	if((lastSize&0x001F) != 0) {
-		printf("ERROR: Image size has unexpected data in the bottom 5 bits! 0x%02X\n", lastSize&0x001F);
-		return 1;
-	}
-	size_t imageSize = lastOffset + (lastSize / 32) - headerSize;
-
-	printf("Dumping %s into semi-RAW format ... ", filename);	
-
-	Img srcImg;
-	srcImg.w = width;
-	srcImg.h = height;
-	srcImg.format = IF_RLE_NEW;
-	srcImg.data = &srcData[headerSize];
-	srcImg.size = imageSize;
-
-	Img * img = cloneImg(&srcImg);
-
-	// convert it to a semi-raw format
-	img = convertImg(img, IF_ARGB8565);
-	if(img==NULL) {
-		printf("ERROR: Failed to convertImg in dumpImageSemi\n");
-		deleteImg(img);
-	}
-	
-	int r = dumpBlob(filename, img->data, img->size);
-	if(r != 0) {
-		printf("ERROR: Filed to save semi-RAW file!\n");		
-		img = deleteImg(img);
-		return 1;
-	}
-	
-	printf("OK.\n");
-	img = deleteImg(img);
-	return 0;
-}
-
-// Dump a bitmap of the image
-static int dumpImageSemiOld(char * filename, u8 * srcData, size_t height) {
-	// Calculate the size of the data when the image header is offsets + sizes
-	size_t headerSize = height * 4;
-	u8 * lastHeaderEntryPtr = &srcData[headerSize - 4];
-	u16 lastOffset = get_u16(lastHeaderEntryPtr);
-	u16 lastSize = get_u16(&lastHeaderEntryPtr[2]);
-	
-	// The size is stored as a multiple of 32!. This suggests the lowest five bits may be used for something else.
-	if((lastSize&0x001F) != 0) {
-		printf("ERROR: Image size has unexpected data in the bottom 5 bits! 0x%02X\n", lastSize&0x001F);
-		return 1;
-	}
-	size_t imageSize = lastOffset + (lastSize / 32) - headerSize;
-	printf("Dumping %s in semi-raw format (%zu bytes) ... ", filename, imageSize);	
-
-	u8 * outputData = malloc(1024*1024);
-	if(outputData == NULL) {
-		printf("ERROR: FAILED TO ALLOCATE MEMORY\n");
-		return 1;
-	}
-	size_t outputPos = 0;
-
-	for(size_t r = 0; r<height; r++) {
-		u16 dataOffset = get_u16(&srcData[r*4]);
-		u8 * dataPtr = &srcData[dataOffset];
-		u16 rowSize = get_u16(&srcData[r*4+2]) / 32;
-		printf("  row: %3zu  dataOffset: 0x%06X  rowSize: 0x%03X (%4u)... ", r, dataOffset, rowSize, rowSize);
-
-		size_t bytesOut = 0;
-		size_t bytesIn = 0;
-		while(bytesIn < rowSize) {
-			u8 cmd = dataPtr[0]; 		// read a byte
-			dataPtr++;
-			bytesIn++;
-			
-			if((cmd & 0x80) != 0) { // Repeat the pixel
-				size_t count = (cmd & 0x7F);
-				printf("1:%zu ", count*3);
-				u8 data[3];
-				data[0] = *dataPtr; 
-				dataPtr++;
-				data[1] = *dataPtr; 
-				dataPtr++;
-				data[2] = *dataPtr; 
-				dataPtr++;
-				bytesIn += 3;
-				for(size_t j=0; j<count; j++) {
-					outputData[outputPos] = data[0]; 
-					outputPos++;
-					outputData[outputPos] = data[1]; 
-					outputPos++;
-					outputData[outputPos] = data[2]; 
-					outputPos++;
-					bytesOut += 3;
-				}
-			} else { // Normal pixel data
-				size_t count = cmd * 3;
-				printf("0:%zu ", count);
-				memcpy(&outputData[outputPos], dataPtr, count);
-				outputPos += count;
-				dataPtr += count;
-				bytesOut += count;
-				bytesIn += count;
-			}			
-		}
-		printf("(%zd bytes)\n", bytesOut);		
-	}
-	// save to file
-	int r = dumpBlob(filename, outputData, outputPos);
-
-	// free allocated memory
-	free(outputData);
-
-	if(r!=0) {
-		printf("ERROR: dumpImage failed (%d)\n", r);
-		return 0;
-	} else {
-		printf("%zu bytes OK\n", outputPos);
-		return 0;
-	}
-}
-
-// Dump a bitmap of the image
-static int dumpImageBMP(char * filename, u8 * srcData, size_t width, size_t height) {
-	// Calculate the size of the data when the image header is offsets + sizes
-	size_t headerSize = height * 4;
-	u8 * lastHeaderEntryPtr = &srcData[headerSize - 4];
-	u16 lastOffset = get_u16(lastHeaderEntryPtr);
-	u16 lastSize = get_u16(&lastHeaderEntryPtr[2]);
-	
-	// The size is stored as a multiple of 32!. This suggests the lowest five bits may be used for something else.
-	if((lastSize&0x001F) != 0) {
-		printf("ERROR: Image size has unexpected data in the bottom 5 bits! 0x%02X\n", lastSize&0x001F);
-		return 1;
-	}
-	size_t imageSize = lastOffset + (lastSize / 32) - headerSize;
-
-	printf("Dumping %s into BMP format ... ", filename);	
-
-	Img srcImg;
-	srcImg.w = width;
-	srcImg.h = height;
-	srcImg.format = IF_RLE_NEW;
-	srcImg.data = &srcData[headerSize];
-	srcImg.size = imageSize ;
-
-	Img * img = cloneImg(&srcImg);
-
-	// now we can save it
-	Bytes * b = imgToBMP(img);
-	img = deleteImg(img);
-	if(b == NULL) {
-		printf("ERROR: Failed to convert image to BMP!\n");
-		return 1;	// ERROR
-	}
-	int r = saveBytesToFile(b, filename);
-	if(r != 0) {
-		printf("ERROR: Filed to save BMP file!\n");		
-	}
-	b = deleteBytes(b);
-
-	printf("OK.\n");
-	return 0;
-}
-
-static int dumpImage(char * filename, u8 * srcData, size_t width, size_t height, Format format) {
-	if(format == FMT_RAW) {
-		return dumpImageRaw(filename, srcData, height);
-	} else if(format == FMT_SEMI) {
-		return dumpImageSemi(filename, srcData, width, height);
-	} else { // format == FMT_BMP
-		return dumpImageBMP(filename, srcData, width, height);
-	}
-}
-
-static int debugImage(u8 * srcData, size_t height) {
-	// Calculate the size of the data when the image header is offsets + sizes
-	size_t lastHeaderEntry = (height * 4) - 4;
-	u8 * lastHeaderEntryPtr = &srcData[lastHeaderEntry];
-	u16 lastOffset = get_u16(lastHeaderEntryPtr);		// Not sure how these offsets work yet
-	u16 lastSize = get_u16(&lastHeaderEntryPtr[2]);
-	// The size is stored as a multiple of 32!. This suggests the lowest five bits may be used for something else.
-	if((lastSize&0x001F) != 0) {
-		printf("ERROR: Image size has unexpected data in the bottom 5 bits! 0x%02X\n", lastSize&0x001F);
-	}
-	size_t imageSize = lastOffset + (lastSize / 32);
-	
-	printf("Image size: 0x%06zX (%zu)\n", imageSize, imageSize);
-	// Print the header rows	
-	size_t offset = 0;
-	for(offset=0; offset<(height*4); offset+=4) {
-		u16 dataOffset = get_u16(&srcData[offset]);
-		u16 dataSize = get_u16(&srcData[offset+2]) / 32;
-		printf("  @ 0x%06zX  row: %3zu  rowOffset: 0x%06X  rowSize: 0x%03X (%4u)\n", offset, offset/4, dataOffset, dataSize, dataSize);
-	}
-
-	// Print the data for each row
-	return 0;
-}
-
-//----------------------------------------------------------------------------
 //  PRINT OFFSET, WIDTH, HEIGHT ARRAY TO STRING
 //----------------------------------------------------------------------------
 
@@ -354,11 +67,10 @@ void printOwh(OffsetWidthHeight * owh, size_t count, const char * name, char * d
 	}
 }
 
+
 //----------------------------------------------------------------------------
 //  MAIN
 //----------------------------------------------------------------------------
-
-
 
 int main(int argc, char * argv[]) {
 	char * fileName = "";

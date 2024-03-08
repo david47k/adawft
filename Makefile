@@ -3,7 +3,7 @@ GCC=gcc
 CFLAGS = -std=c99 -Wall -Wextra -Wpedantic
 WIN32CC=i686-w64-mingw32-gcc
 WIN64CC=x86_64-w64-mingw32-gcc
-SRCFILES = bmp.c strutil.c bytes.c adawft.c
+SRCFILES = types.c bmp.c strutil.c bytes.c dump.c adawft.c
 EXE = adawft
 TARGETS = $(EXE) $(EXE).x86.exe $(EXE).x64.exe
 
