@@ -194,6 +194,7 @@ int main(int argc, char * argv[]) {
 
 	// Store some counters for filenames
 	u16 staticCounter = 0;
+	u16 altDigitsCounter = 0;
 
 	// Buffer for temporary string data
 	char sbuf[20];
@@ -222,7 +223,7 @@ int main(int argc, char * argv[]) {
 					sscatprintf(watchFaceStr, "statich.xy      %3u, %3u\n", statich->xy.x, statich->xy.y);
 					sscatprintf(watchFaceStr, "statich.owh     0x%08X, %3u, %3u\n", statich->offset, statich->width, statich->height);					
 					if(dump) {		
-						sprintf(&dfnBuf[baseSize], "static_%02u.%s", staticCounter++, (format==FMT_BMP?"bmp":"raw"));
+						sprintf(&dfnBuf[baseSize], "static_%u.%s", staticCounter++, (format==FMT_BMP?"bmp":"raw"));
 						dumpImage(dfnBuf, &fileData[statich->offset], statich->width, statich->height, format);
 					}
 				}
@@ -257,33 +258,49 @@ int main(int argc, char * argv[]) {
 			case 0x0201:
 				// TimeHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  TimeHeader\n", offset);
+				TimeHeader * time = (TimeHeader *)&fileData[offset];
+				sscatprintf(watchFaceStr, "                unknown: %u %u %u %u\n", time->unknown[0], time->unknown[1], time->unknown[2], time->unknown[3]);
 				offset += sizeof(TimeHeader);
 				break;				
 			case 0x0401:
 				// DayNameHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  DayNameHeader\n", offset);
+				DayNameHeader * dname = (DayNameHeader *)&fileData[offset];
+				if(dump) {
+					for(size_t i=0; i<7; i++) {
+						sprintf(&dfnBuf[baseSize], "dayname_%u_%zu.%s", dname->subtype, i, (format==FMT_BMP?"bmp":"raw"));
+						dumpImage(dfnBuf, &fileData[dname->owh[i].offset], dname->owh[i].width, dname->owh[i].height, format);
+					}
+				}				
 				offset += sizeof(DayNameHeader);
 				break;
 			case 0x0501:
 				// BatteryFillHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  BatteryFillHeader\n", offset);
+				BatteryFillHeader * batteryFill = (BatteryFillHeader *)&fileData[offset];
+				if(dump) {
+					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 0, (format==FMT_BMP?"bmp":"raw"));
+					dumpImage(dfnBuf, &fileData[batteryFill->owh.offset], batteryFill->owh.width, batteryFill->owh.height, format);
+					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 1, (format==FMT_BMP?"bmp":"raw"));
+					dumpImage(dfnBuf, &fileData[batteryFill->owh1.offset], batteryFill->owh1.width, batteryFill->owh1.height, format);
+					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 2, (format==FMT_BMP?"bmp":"raw"));
+					dumpImage(dfnBuf, &fileData[batteryFill->owh2.offset], batteryFill->owh2.width, batteryFill->owh2.height, format);
+				}
 				offset += sizeof(BatteryFillHeader);
 				break;
 			case 0x0601:
 				// HeartRateNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  HeartRateNumHeader\n", offset);
 				HeartRateNumHeader * hrn = (HeartRateNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "  digitSet: %u\n", hrn->digitSet);
-				sscatprintf(watchFaceStr, "  justification: %u\n", hrn->justification);
+				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", hrn->digitSet, hrn->justification);
 				offset += sizeof(HeartRateNumHeader);
 				break;
 			case 0x0701:
 				// StepsNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  StepsNumHeader\n", offset);
 				StepsNumHeader * sn = (StepsNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "  digitSet: %u\n", sn->digitSet);
-				sscatprintf(watchFaceStr, "  justification: %u\n", sn->justification);
-				offset += sizeof(StepsNumHeader);
+				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", sn->digitSet, sn->justification);
+					offset += sizeof(StepsNumHeader);
 				break;
 			case 0x0901:
 				// KCalHeader
@@ -293,34 +310,49 @@ int main(int argc, char * argv[]) {
 			case 0x0A01:
 				// HandsHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  HandsHeader\n", offset);
+				HandsHeader * hands = (HandsHeader *)&fileData[offset];				
+				if(dump) {		
+					sprintf(&dfnBuf[baseSize], "hand_%u.%s", hands->subtype, (format==FMT_BMP?"bmp":"raw"));
+					dumpImage(dfnBuf, &fileData[hands->offset], hands->width, hands->height, format);
+				}
 				offset += sizeof(HandsHeader);
 				break;
 			case 0x0D01:
 				// DayNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  DayNumHeader\n", offset);
 				DayNumHeader * dn = (DayNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "  digitSet: %u\n", dn->digitSet);
-				sscatprintf(watchFaceStr, "  justification: %u\n", dn->justification);							
+				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", dn->digitSet, dn->justification);
 				offset += sizeof(DayNumHeader);
 				break;
 			case 0x0F01:
 				// MonthNumHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  MonthNumHeader\n", offset);
 				MonthNumHeader * mn = (MonthNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "  digitSet: %u\n", mn->digitSet);
-				sscatprintf(watchFaceStr, "  justification: %u\n", mn->justification);								
+				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", mn->digitSet, mn->justification);
 				offset += sizeof(MonthNumHeader);
 				break;
 			case 0x1201:
 				// BarDisplayHeader
 				BarDisplayHeader * bdh = (BarDisplayHeader *)&fileData[offset];
 				sscatprintf(watchFaceStr, "@ 0x%08zX  BarDisplayHeader. subtype: %u. count: %u.\n", offset, bdh->subtype, bdh->count);
+				if(dump) {
+					for(size_t i=0; i<bdh->count; i++) {
+						sprintf(&dfnBuf[baseSize], "bardisplay_%u_%zu.%s", bdh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
+						dumpImage(dfnBuf, &fileData[bdh->owh[i].offset], bdh->owh[i].width, bdh->owh[i].height, format);
+					}
+				}						
 				offset += sizeof(BarDisplayHeader) + sizeof(OffsetWidthHeight) * (bdh->count-1);
 				break;
 			case 0x1B01:
 				// WeatherHeader
 				WeatherHeader * wh = (WeatherHeader *)&fileData[offset];
 				sscatprintf(watchFaceStr, "@ 0x%08zX  WeatherHeader. subtype: %u.\n", offset, wh->subtype);
+				if(dump) {
+					for(size_t i=0; i<wh->subtype; i++) {
+						sprintf(&dfnBuf[baseSize], "weather_%u_%zu.%s", wh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
+						dumpImage(dfnBuf, &fileData[wh->owh[i].offset], wh->owh[i].width, wh->owh[i].height, format);
+					}
+				}										
 				offset += sizeof(WeatherHeader);
 				break;
 			case 0x1D01:
@@ -348,7 +380,7 @@ int main(int argc, char * argv[]) {
 				AltDigitsHeaderSane sane;
 				sane.type = adh->type;
 				sane.unknown = adh->unknown;
-				sane.owh[0].offset = adh->loByteOffset0 | (adh->hiBytesOffset0[0] << 8) | (adh->hiBytesOffset0[1] << 16)| (adh->hiBytesOffset0[2] << 24);
+				sane.owh[0].offset = ((adh->type & 0xFF00) >> 8) | (adh->hiBytesOffset0[0] << 8) | (adh->hiBytesOffset0[1] << 16)| (adh->hiBytesOffset0[2] << 24);
 				sane.owh[0].width = adh->width0;
 				sane.owh[0].height = adh->height0;
 				memcpy(&sane.owh[1], &adh->owh[0], sizeof(OffsetWidthHeight) * 9);
@@ -356,6 +388,14 @@ int main(int argc, char * argv[]) {
 				sprintf(sbuf, "altDigits.owh");
 				// print all the details
 				printOwh(&sane.owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
+				if(dump) {
+					for(size_t i=0; i<10; i++) {
+						//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
+						sprintf(&dfnBuf[baseSize], "altdigit_%u_%zu.%s", altDigitsCounter, i, (format==FMT_BMP?"bmp":"raw"));
+						dumpImage(dfnBuf, &fileData[sane.owh[i].offset], sane.owh[i].width, sane.owh[i].height, format);
+					}
+				}
+				altDigitsCounter++;
 				offset += sizeof(AltDigitsHeader);
 				break;	
 			default:

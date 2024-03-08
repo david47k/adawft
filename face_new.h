@@ -57,7 +57,7 @@ typedef struct _TimeHeader {
 	u8 padding[12];			// 0
 } TimeHeader;
 
-// DayNameHeader is for days Mon, Tue, Wed, Thu, Fri, Sat, Sun.
+// DayNameHeader is for days Sun, Mon, Tue, Wed, Thu, Fri, Sat.
 typedef struct _DayNameHeader {
 	u16 type;				// 0x0401
 	u8 subtype;				// 01
@@ -76,8 +76,8 @@ typedef struct _BatteryFillHeader {
 	u8 y2;
 	u32 unknown;
 	u32 unknown2;
-	OffsetWidthHeight owh2;	// maybe for empty?
-	OffsetWidthHeight owh3;	// maybe for full?
+	OffsetWidthHeight owh1;	// maybe for empty?
+	OffsetWidthHeight owh2;	// maybe for full?
 } BatteryFillHeader;
 
 // Heart rate displayed as a number
@@ -119,7 +119,7 @@ typedef struct _HandsHeader {
 	u16 y;					// typically center of screen
 } HandsHeader;
 
-// This unknown header has been seen in API 13 and 15.
+// Day of the month as a number
 typedef struct _DayNumHeader {
 	u16 type;				// 0x0D01
 	u8 digitSet;			// suspected digit set # (font)
@@ -144,16 +144,14 @@ typedef struct _BarDisplayHeader {
 	OffsetWidthHeight owh[1];	// there are *COUNT* number of entries! (not just 1!)
 } BarDisplayHeader;
 
-// Used when the minute digits are different to the hour digits (0x1401)
-// Unknown use: (0xEC02)
+// Used when the minute digits are different to the hour digits (0xXX01)
 typedef struct _AltDigitsHeader {
-	u16 type;				// 0x1401 (typ. mins) or 0xEC02 (??) or 0x4C01 (??)
+	u16 type;				// Second byte is actually part of offset0... they stuffed this up a lot lol
 	u8 hiBytesOffset0[3];		// Looks like they stuffed up this item and didn't allow enough bytes to store the full offset!
 	u16 width0;				// width of the first digit
 	u16 height0;			// height of the first digit
 	OffsetWidthHeight owh[9];	// For the rest of the digits!
-	u8 loByteOffset0;		// The low byte of the offset for the first digit!
-	u8 unknown;				// 0
+	u8 unknown[2];			// 0
 } AltDigitsHeader;
 
 // We can remap the above to a saner format

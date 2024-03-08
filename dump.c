@@ -25,7 +25,7 @@ static int dumpImageRaw(const char * filename, u8 * srcData, const size_t height
 		return 1;
 	}
 	size_t imageSize = lastOffset + (lastSize / 32);
-	printf("Dumping %s (%zu bytes) ... ", filename, imageSize);	
+	printf("Dumping RAW %s ... ", filename);	
 	
 	int r = dumpBlob(filename, srcData, imageSize);
 	if(r!=0) {
@@ -51,7 +51,7 @@ static int dumpImageSemi(const char * filename, u8 * srcData, const size_t width
 	}
 	size_t imageSize = lastOffset + (lastSize / 32) - headerSize;
 
-	printf("Dumping %s into semi-RAW format ... ", filename);	
+	printf("Dumping semi-RAW %s ... ", filename);	
 
 	Img srcImg;
 	srcImg.w = width;
@@ -96,7 +96,7 @@ static int dumpImageBMP(const char * filename, u8 * srcData, const size_t width,
 	}
 	size_t imageSize = lastOffset + (lastSize / 32) - headerSize;
 
-	printf("Dumping %s into BMP format ... ", filename);	
+	printf("Dumping BMP %s ... ", filename);	
 
 	Img srcImg;
 	srcImg.w = width;
