@@ -15,7 +15,7 @@
 //  NEWBYTESFROMFILE - read entire file into memory into a Bytes struct
 //----------------------------------------------------------------------------
 
-Bytes * newBytesFromFile(char * fileName) {
+Bytes * newBytesFromFile(const char * fileName) {
 	// Open the binary input file
     FILE * f = fopen(fileName, "rb");
     if(f==NULL) {
@@ -55,6 +55,26 @@ Bytes * newBytesFromFile(char * fileName) {
 
 
 //----------------------------------------------------------------------------
+//  NEWBYTESFROMMEMORY - clone bytes from memory into a Bytes struct
+//----------------------------------------------------------------------------
+
+Bytes * newBytesFromMemory(const u8 * data, size_t size) {
+	// Allocate buffer
+	Bytes * b = (Bytes *)malloc(sizeof(Bytes)+size);
+	if(b == NULL) {
+		printf("ERROR: Unable to allocate enough memory.\n");
+		return NULL;
+	}
+
+	b->size = size;	
+	memcpy(b->data, data, size);	
+
+	// Return the allocated memory filled with the data
+	return b;
+}
+
+
+//----------------------------------------------------------------------------
 //  DELETEBYTES - delete data allocated using newBytesFromFile
 //----------------------------------------------------------------------------
 
@@ -70,7 +90,7 @@ Bytes * deleteBytes(Bytes * b) {
 //  SAVEBYTESTOFILE - save blob to file
 //----------------------------------------------------------------------------
 
-int saveBytesToFile(const Bytes * b, char * fileName) {
+int saveBytesToFile(const Bytes * b, const char * fileName) {
 	// open the dump file
 	FILE * dumpFile = fopen(fileName, "wb");
 	if(dumpFile == NULL) {

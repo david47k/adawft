@@ -14,6 +14,7 @@ typedef struct _Bytes {
 //  EXPORTED FUNCTIONS
 //----------------------------------------------------------------------------
 
-Bytes * newBytesFromFile(char * filename);
+Bytes * newBytesFromFile(const char * filename);
+Bytes * newBytesFromMemory(const u8 * data, size_t size);
 Bytes * deleteBytes(Bytes * b);
-int saveBytesToFile(const Bytes * b, char * filename);
+int saveBytesToFile(const Bytes * b, const char * filename);
