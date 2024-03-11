@@ -194,7 +194,6 @@ int main(int argc, char * argv[]) {
 
 	// Store some counters for filenames
 	u16 staticCounter = 0;
-	u16 altDigitsCounter = 0;
 
 	// Buffer for temporary string data
 	char sbuf[20];
@@ -207,59 +206,36 @@ int main(int argc, char * argv[]) {
 	}
 
 	size_t offset = h->dhOffset;	// Usually 0x10
+	u16 digitStart = get_u16(&fileData[offset]);
+	offset += 2;
+	if(digitStart == 0x0101) {
+		printf("WARNING: Unknown start to digits section 0x%04X\n", digitStart);
+	}
+	u16 digitsCounter = 0;
 
 	while(more) {
-		u16 type = get_u16(&fileData[offset]);
-		if(type == 0x0101) {
-			// Initial digits header
-			// Analog-only watchfaces don't have one.				
-			// bool hasDigitsHeader = (h->dhOffset != 0);
-			DigitsHeader * dh = (DigitsHeader *)&fileData[offset];
-			if(dh->subtype == 0) {
-				sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (0: Time)\n", offset);
-			} else if(dh->subtype == 1) {
-				sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (1: DayNum)\n", offset);
-			} else {
-				sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (%u: Unknown)\n", offset, dh->subtype);
-			}
-			// what digit font is it
-			sprintf(sbuf, "digit%u.owh", dh->subtype);
-			// print all the details
-			printOwh(&dh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
-			// debug the first one
-			// debugImage(&fileData[dh->owh[0].offset], dh->owh[0].height);
-			if(dump) {
-				for(size_t i=0; i<10; i++) {
-					//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
-					sprintf(&dfnBuf[baseSize], "digit_%u_%zu.%s", dh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
-					dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].width, dh->owh[i].height, format);
-				}					
-			}
-			offset += sizeof(DigitsHeader);
-		} else {
-			// AltDigitsHeader
-			AltDigitsHeader * adh = (AltDigitsHeader *)&fileData[offset];
-			// Remap it to a sane format
-			sscatprintf(watchFaceStr, "@ 0x%08zX  AltDigitsHeader (0x%02X)\n", offset, adh->type);
-			sprintf(sbuf, "altDigits.owh");
-			// print all the details
-			printOwh(&adh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
-			if(dump) {
-				for(size_t i=0; i<10; i++) {
-					//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
-					sprintf(&dfnBuf[baseSize], "altdigit_%u_%zu.%s", altDigitsCounter, i, (format==FMT_BMP?"bmp":"raw"));
-					dumpImage(dfnBuf, &fileData[adh->owh[i].offset], adh->owh[i].width, adh->owh[i].height, format);
-				}
-			}
-			altDigitsCounter++;
-			offset += sizeof(AltDigitsHeader);
+		DigitsHeader * dh = (DigitsHeader *)&fileData[offset];
+		sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (%u)\n", offset, dh->digitSet);
+		// what digit font is it
+		sprintf(sbuf, "digit[%u].owh", dh->digitSet);
+		// print all the details
+		printOwh(&dh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
+		if(dump) {
+			for(size_t i=0; i<10; i++) {
+				//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
+				sprintf(&dfnBuf[baseSize], "digit_%u_%zu.%s", dh->digitSet, i, (format==FMT_BMP?"bmp":"raw"));
+				dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].width, dh->owh[i].height, format);
+			}					
 		}
+		offset += sizeof(DigitsHeader);
+		digitsCounter++;
 		if(offset >= h->bhOffset) {
 			more = false;
 		}
 	}
 
 	// Now we check the rest of the headers
+	offset = h->bhOffset;
 	more = true;
 	while(more) {
 		u16 type = get_u16(&fileData[offset]);

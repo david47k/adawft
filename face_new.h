@@ -30,22 +30,15 @@ typedef struct _FaceHeaderN {
 } FaceHeaderN;
 
 // DigitsHeader(s) are typically located between the FaceHeader and the background image header
+// DigitHeaders start with 0101
 
 // Digital clocks have a DigitsHeader, Analog-Only clocks don't.
 // Can be time (HHMM) digits, or day number (DD) digits
 typedef struct _DigitsHeader {
-	u16 type;				// 0x0101
-	u8 subtype;				// 0 for Time digits, ? 1 for DayNum digits, ? 2 for Steps ? digits ?
+	u8 digitSet;				// What number to call this set of digits
 	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
-	u8 unknown2[2];			// 0
+	u8 unknown2[2];				// 0
 } DigitsHeader;
-
-// Used when the minute digits are different to the hour digits (0xXX01), for example.
-typedef struct _AltDigitsHeader {
-	u8 type;					// note: only a u8! seen a 1 and a 2
-	OffsetWidthHeight owh[10];	// 
-	u8 unknown[2];				// 0
-} AltDigitsHeader;
 
 // StaticHeader is for static images (e.g. the background)
 typedef struct _StaticHeader {
