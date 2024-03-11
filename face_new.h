@@ -23,10 +23,10 @@ typedef struct _FaceHeaderN {
 	u16 unknown0;			// FF FF
 	u16 unknown1;			// 0x61F4 or 0x93A4 (for example)
 	u16 unknown2;			// 0 or 1 or 2
-	u16 unknown3;			// 8C 00
-	u16 unknown4;			// A3 00
-	u16 dhOffset;			// Offset of the DigitsHeader(s). Usually 0x0010. Seen as 0x0000 for an analog-only watchface using API10.
-	u16 bhOffset;			// Offset of the background image (a StaticHeader)
+	u16 previewWidth;		// 8C 00 -- width of preview image
+	u16 previewHeight;		// A3 00 -- height of preview image
+	u16 dhOffset;			// Offset of the DigitsHeader(s). Usually 0x0010. Seen as 0 for an analog-only watchface using API10.
+	u16 bhOffset;			// Offset of the background image (a StaticHeader). Also where the digits and altDigits end.
 } FaceHeaderN;
 
 // DigitsHeader(s) are typically located between the FaceHeader and the background image header
@@ -35,10 +35,17 @@ typedef struct _FaceHeaderN {
 // Can be time (HHMM) digits, or day number (DD) digits
 typedef struct _DigitsHeader {
 	u16 type;				// 0x0101
-	u8 subtype;				// 0 for Time digits, 1 for DayNum digits, 2 for Steps? digits?
+	u8 subtype;				// 0 for Time digits, ? 1 for DayNum digits, ? 2 for Steps ? digits ?
 	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
 	u8 unknown2[2];			// 0
 } DigitsHeader;
+
+// Used when the minute digits are different to the hour digits (0xXX01), for example.
+typedef struct _AltDigitsHeader {
+	u8 type;					// note: only a u8! seen a 1 and a 2
+	OffsetWidthHeight owh[10];	// 
+	u8 unknown[2];				// 0
+} AltDigitsHeader;
 
 // StaticHeader is for static images (e.g. the background)
 typedef struct _StaticHeader {
@@ -52,7 +59,7 @@ typedef struct _StaticHeader {
 // TimeHeader is the location of the time (HHMM) digits on the screen
 typedef struct _TimeHeader {
 	u16 type;				// 0x0201
-	u8 unknown[4];			// 0 or 1, probably which digit font set to use for each digit
+	u8 digitSet[4];			// 0 or 1 for example, which digit font set to use for each digit
 	XY xy[4];				// x and y position of the four time digits HHMM
 	u8 padding[12];			// 0
 } TimeHeader;
@@ -143,23 +150,6 @@ typedef struct _BarDisplayHeader {
 	XY xy;
 	OffsetWidthHeight owh[1];	// there are *COUNT* number of entries! (not just 1!)
 } BarDisplayHeader;
-
-// Used when the minute digits are different to the hour digits (0xXX01)
-typedef struct _AltDigitsHeader {
-	u16 type;				// Second byte is actually part of offset0... they stuffed this up a lot lol
-	u8 hiBytesOffset0[3];		// Looks like they stuffed up this item and didn't allow enough bytes to store the full offset!
-	u16 width0;				// width of the first digit
-	u16 height0;			// height of the first digit
-	OffsetWidthHeight owh[9];	// For the rest of the digits!
-	u8 unknown[2];			// 0
-} AltDigitsHeader;
-
-// We can remap the above to a saner format
-typedef struct _AltDigitsHeaderSane {
-	u16 type;				// 0x1401
-	OffsetWidthHeight owh[10];	// For all the digits
-	u8 unknown;				// 0
-} AltDigitsHeaderSane;
 
 typedef struct _WeatherHeader {
 	u16 type;				// 0x1B01

@@ -166,8 +166,8 @@ int main(int argc, char * argv[]) {
 	sscatprintf(watchFaceStr, "unknown0        0x%04X\n", h->unknown0);
 	sscatprintf(watchFaceStr, "unknown1        0x%04X\n", h->unknown1);
 	sscatprintf(watchFaceStr, "unknown2        %u\n", h->unknown2);
-	sscatprintf(watchFaceStr, "unknown3        %u\n", h->unknown3);
-	sscatprintf(watchFaceStr, "unknown4        %u\n", h->unknown4);
+	sscatprintf(watchFaceStr, "previewWidth    %u\n", h->previewWidth);
+	sscatprintf(watchFaceStr, "previewHeight   %u\n", h->previewHeight);
 	sscatprintf(watchFaceStr, "dhOffset        0x%04X\n", h->dhOffset);
 	sscatprintf(watchFaceStr, "bhOffset        0x%04X\n", h->bhOffset);
 	
@@ -199,12 +199,70 @@ int main(int argc, char * argv[]) {
 	// Buffer for temporary string data
 	char sbuf[20];
 
-	// Process the different headers
-	size_t offset = sizeof(FaceHeaderN);
-
-	u16 type = get_u16(&fileData[offset]);
+	// First we check the digits headers. They come before the background header
+	
 	bool more = true;
+	if(h->dhOffset == 0) {
+		more = false; 	// no digits headers to process
+	}
+
+	size_t offset = h->dhOffset;	// Usually 0x10
+
 	while(more) {
+		u16 type = get_u16(&fileData[offset]);
+		if(type == 0x0101) {
+			// Initial digits header
+			// Analog-only watchfaces don't have one.				
+			// bool hasDigitsHeader = (h->dhOffset != 0);
+			DigitsHeader * dh = (DigitsHeader *)&fileData[offset];
+			if(dh->subtype == 0) {
+				sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (0: Time)\n", offset);
+			} else if(dh->subtype == 1) {
+				sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (1: DayNum)\n", offset);
+			} else {
+				sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (%u: Unknown)\n", offset, dh->subtype);
+			}
+			// what digit font is it
+			sprintf(sbuf, "digit%u.owh", dh->subtype);
+			// print all the details
+			printOwh(&dh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
+			// debug the first one
+			// debugImage(&fileData[dh->owh[0].offset], dh->owh[0].height);
+			if(dump) {
+				for(size_t i=0; i<10; i++) {
+					//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
+					sprintf(&dfnBuf[baseSize], "digit_%u_%zu.%s", dh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
+					dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].width, dh->owh[i].height, format);
+				}					
+			}
+			offset += sizeof(DigitsHeader);
+		} else {
+			// AltDigitsHeader
+			AltDigitsHeader * adh = (AltDigitsHeader *)&fileData[offset];
+			// Remap it to a sane format
+			sscatprintf(watchFaceStr, "@ 0x%08zX  AltDigitsHeader (0x%02X)\n", offset, adh->type);
+			sprintf(sbuf, "altDigits.owh");
+			// print all the details
+			printOwh(&adh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
+			if(dump) {
+				for(size_t i=0; i<10; i++) {
+					//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
+					sprintf(&dfnBuf[baseSize], "altdigit_%u_%zu.%s", altDigitsCounter, i, (format==FMT_BMP?"bmp":"raw"));
+					dumpImage(dfnBuf, &fileData[adh->owh[i].offset], adh->owh[i].width, adh->owh[i].height, format);
+				}
+			}
+			altDigitsCounter++;
+			offset += sizeof(AltDigitsHeader);
+		}
+		if(offset >= h->bhOffset) {
+			more = false;
+		}
+	}
+
+	// Now we check the rest of the headers
+	more = true;
+	while(more) {
+		u16 type = get_u16(&fileData[offset]);
 		switch(type) {
 			case 0x0000:
 				// End of header section
@@ -229,37 +287,11 @@ int main(int argc, char * argv[]) {
 				}
 				offset += sizeof(StaticHeader);
 				break;
-			case 0x0101:
-				// DigitsHeader. Analog-only watchfaces don't have one.				
-				// bool hasDigitsHeader = (h->dhOffset != 0);
-				DigitsHeader * dh = (DigitsHeader *)&fileData[offset];
-				if(dh->subtype == 0) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (0: Time)\n", offset);
-				} else if(dh->subtype == 1) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (1: DayNum)\n", offset);
-				} else {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (%u: Unknown)\n", offset, dh->subtype);
-				}
-				// what digit font is it
-				sprintf(sbuf, "digit%u.owh", dh->subtype);
-				// print all the details
-				printOwh(&dh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
-				// debug the first one
-				// debugImage(&fileData[dh->owh[0].offset], dh->owh[0].height);
-				if(dump) {
-					for(size_t i=0; i<10; i++) {
-						//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
-						sprintf(&dfnBuf[baseSize], "digit_%u_%zu.%s", dh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
-						dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].width, dh->owh[i].height, format);
-					}					
-				}
-				offset += sizeof(DigitsHeader);
-				break;
 			case 0x0201:
 				// TimeHeader
 				sscatprintf(watchFaceStr, "@ 0x%08zX  TimeHeader\n", offset);
 				TimeHeader * time = (TimeHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "                unknown: %u %u %u %u\n", time->unknown[0], time->unknown[1], time->unknown[2], time->unknown[3]);
+				sscatprintf(watchFaceStr, "                digitSet: %u %u %u %u\n", time->digitSet[0], time->digitSet[1], time->digitSet[2], time->digitSet[3]);
 				offset += sizeof(TimeHeader);
 				break;				
 			case 0x0401:
@@ -367,37 +399,6 @@ int main(int argc, char * argv[]) {
 				sscatprintf(watchFaceStr, "@ 0x%08zX  Unknown2301Header.\n", offset);
 				offset += sizeof(Unknown2301);
 				break;	
-			case 0x1401:
-			case 0xEC02:
-			case 0x4C01:
-			case 0x8801:
-			case 0x2C01:
-			case 0x6001:
-			case 0xD001:
-				// AltDigitsHeader
-				AltDigitsHeader * adh = (AltDigitsHeader *)&fileData[offset];
-				// Remap it to a sane format
-				AltDigitsHeaderSane sane;
-				sane.type = adh->type;
-				sane.unknown = adh->unknown;
-				sane.owh[0].offset = ((adh->type & 0xFF00) >> 8) | (adh->hiBytesOffset0[0] << 8) | (adh->hiBytesOffset0[1] << 16)| (adh->hiBytesOffset0[2] << 24);
-				sane.owh[0].width = adh->width0;
-				sane.owh[0].height = adh->height0;
-				memcpy(&sane.owh[1], &adh->owh[0], sizeof(OffsetWidthHeight) * 9);
-				sscatprintf(watchFaceStr, "@ 0x%08zX  AltDigitsHeader (0x%04X)\n", offset, sane.type);
-				sprintf(sbuf, "altDigits.owh");
-				// print all the details
-				printOwh(&sane.owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
-				if(dump) {
-					for(size_t i=0; i<10; i++) {
-						//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
-						sprintf(&dfnBuf[baseSize], "altdigit_%u_%zu.%s", altDigitsCounter, i, (format==FMT_BMP?"bmp":"raw"));
-						dumpImage(dfnBuf, &fileData[sane.owh[i].offset], sane.owh[i].width, sane.owh[i].height, format);
-					}
-				}
-				altDigitsCounter++;
-				offset += sizeof(AltDigitsHeader);
-				break;	
 			default:
 				// UNKNOWN DATA
 				sscatprintf(watchFaceStr, "@ 0x%08zX  UNKNOWN TYPE 0x%04X\n", offset, type);
@@ -405,7 +406,6 @@ int main(int argc, char * argv[]) {
 				more = false;
 				break;
 		}
-		type = get_u16(&fileData[offset]);
 	}
 
 	// display all the important data
