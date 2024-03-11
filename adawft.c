@@ -172,7 +172,7 @@ int main(int argc, char * argv[]) {
 	sscatprintf(watchFaceStr, "bhOffset        0x%04X\n", h->bhOffset);
 	
 	// Everything should have a background (I hope!)
-	StaticHeader * bgh = (StaticHeader *)&fileData[h->bhOffset];
+	ImageHeader * bgh = (ImageHeader *)&fileData[h->bhOffset];
 	sscatprintf(watchFaceStr, "bgh.xy          %3u, %3u\n", bgh->xy.x, bgh->xy.y);
 	sscatprintf(watchFaceStr, "bgh.owh         0x%08X, %3u, %3u\n", bgh->offset, bgh->width, bgh->height);
 
@@ -193,7 +193,7 @@ int main(int argc, char * argv[]) {
 	}
 
 	// Store some counters for filenames
-	u16 staticCounter = 0;
+	u16 imageCounter = 0;
 
 	// Buffer for temporary string data
 	char sbuf[20];
@@ -208,7 +208,7 @@ int main(int argc, char * argv[]) {
 	size_t offset = h->dhOffset;	// Usually 0x10
 	u16 digitStart = get_u16(&fileData[offset]);
 	offset += 2;
-	if(digitStart == 0x0101) {
+	if(digitStart != 0x0101) {
 		printf("WARNING: Unknown start to digits section 0x%04X\n", digitStart);
 	}
 	u16 digitsCounter = 0;
@@ -247,21 +247,21 @@ int main(int argc, char * argv[]) {
 				more = false;
 				break;
 			case 0x0001:
-				// StaticHeader for static images
+				// ImageHeader for images
 				if(offset == h->bhOffset) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  StaticHeader (Background)\n", offset);
+					sscatprintf(watchFaceStr, "@ 0x%08zX  ImageHeader (Background)\n", offset);
 				} else {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  StaticHeader\n", offset);
-					StaticHeader * statich = (StaticHeader *)&fileData[offset];
-					sscatprintf(watchFaceStr, "statich.type    0x%04X\n", statich->type);
-					sscatprintf(watchFaceStr, "statich.xy      %3u, %3u\n", statich->xy.x, statich->xy.y);
-					sscatprintf(watchFaceStr, "statich.owh     0x%08X, %3u, %3u\n", statich->offset, statich->width, statich->height);					
+					sscatprintf(watchFaceStr, "@ 0x%08zX  ImageHeader\n", offset);
+					ImageHeader * imageh = (ImageHeader *)&fileData[offset];
+					sscatprintf(watchFaceStr, "imageh.type    0x%04X\n", imageh->type);
+					sscatprintf(watchFaceStr, "imageh.xy      %3u, %3u\n", imageh->xy.x, imageh->xy.y);
+					sscatprintf(watchFaceStr, "imageh.owh     0x%08X, %3u, %3u\n", imageh->offset, imageh->width, imageh->height);					
 					if(dump) {		
-						sprintf(&dfnBuf[baseSize], "static_%u.%s", staticCounter++, (format==FMT_BMP?"bmp":"raw"));
-						dumpImage(dfnBuf, &fileData[statich->offset], statich->width, statich->height, format);
+						sprintf(&dfnBuf[baseSize], "image_%u.%s", imageCounter++, (format==FMT_BMP?"bmp":"raw"));
+						dumpImage(dfnBuf, &fileData[imageh->offset], imageh->width, imageh->height, format);
 					}
 				}
-				offset += sizeof(StaticHeader);
+				offset += sizeof(ImageHeader);
 				break;
 			case 0x0201:
 				// TimeHeader

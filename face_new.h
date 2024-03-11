@@ -26,7 +26,7 @@ typedef struct _FaceHeaderN {
 	u16 previewWidth;		// 8C 00 -- width of preview image
 	u16 previewHeight;		// A3 00 -- height of preview image
 	u16 dhOffset;			// Offset of the DigitsHeader(s). Usually 0x0010. Seen as 0 for an analog-only watchface using API10.
-	u16 bhOffset;			// Offset of the background image (a StaticHeader). Also where the digits and altDigits end.
+	u16 bhOffset;			// Offset of the background image (a ImageHeader). Also where the digits and altDigits end.
 } FaceHeaderN;
 
 // DigitsHeader(s) are typically located between the FaceHeader and the background image header
@@ -40,14 +40,14 @@ typedef struct _DigitsHeader {
 	u8 unknown2[2];				// 0
 } DigitsHeader;
 
-// StaticHeader is for static images (e.g. the background)
-typedef struct _StaticHeader {
+// ImageHeader is for images (e.g. the background)
+typedef struct _ImageHeader {
 	u16 type;				// 0x0001
 	XY xy;					// 0, 0 for background
 	u32 offset;				// offset of image data
 	u16 width;				// width of image
 	u16 height;				// height of image
-} StaticHeader;
+} ImageHeader;
 
 // TimeHeader is the location of the time (HHMM) digits on the screen
 typedef struct _TimeHeader {
