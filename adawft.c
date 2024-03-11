@@ -35,7 +35,7 @@
 
 
 //----------------------------------------------------------------------------
-//  API_VER_INFO - information about each API level
+//  API_VER_INFO - information about what is supported at each API level
 //----------------------------------------------------------------------------
 
 typedef struct _ApiVerInfo {
@@ -44,15 +44,15 @@ typedef struct _ApiVerInfo {
 } ApiVerInfo;
 
 static const ApiVerInfo API_VER_INFO[] = {
-	{  2, "HHMM only" },
-	{  4, "HHMM, weekday name" },
-	{ 10, "Analog HMS hands" },
-	{ 13, "HHMM, weekday name, DD" },
-	{ 15, "HHMM, weekday name, DD, MM, steps" },
-	{ 18, "HHMM or Analog HMS hands, DD, weekday name, bpm, kcal, battery, steps." },
-	{ 20, "Same as 18 plus ??" },
-	{ 29, "HHMM, bpm, ?, weather" },
-	{ 35, "Analog HMS hands, weekday name, DD, bpm, ?, ?" },
+	{  2, "Time only" },
+	{  4, "Time, DayName" },
+	{ 10, "Hands only" },
+	{ 13, "Time, DayName, DayNum" },
+	{ 15, "Time, DayName, DayNum, MonthNum, StepsNum" },
+	{ 18, "Time, Hands, DayName, DayNum, HeartRateNum, BarDisplay(0,2,5,6), KCalNum, StepsNum" },
+	{ 20, "Same as 18? plus BatteryFill" },
+	{ 29, "Same as 18? plus Weather, Unknown1D01" },
+	{ 35, "Same as 18? plus BarDisplay(3), Unknown2301" },
 };
 
 
@@ -132,7 +132,8 @@ int main(int argc, char * argv[]) {
 		printf("Usage:   %s [OPTIONS] FILENAME\n\n",basename);
 		printf("%s\n","  OPTIONS");
 		printf("%s\n","    --dump=FOLDERNAME    Dump data to folder. Folder name defaults to 'dump'.");
-		printf("%s\n","    --raw                When dumping, dump raw files.");
+		printf("%s\n","    --raw                When dumping, dump raw (compressed) files.");
+		printf("%s\n","    --semiraw            When dumping, dump semiraw (decompressed raw bitmap) files.");
 		printf("%s\n","  FILENAME               Binary watch face file for input.");
 		printf("\n");
 		return 0;
@@ -206,10 +207,10 @@ int main(int argc, char * argv[]) {
 	}
 
 	size_t offset = h->dhOffset;	// Usually 0x10
-	u16 digitStart = get_u16(&fileData[offset]);
+	u16 digitSectionStart = get_u16(&fileData[offset]);
 	offset += 2;
-	if(digitStart != 0x0101) {
-		printf("WARNING: Unknown start to digits section 0x%04X\n", digitStart);
+	if(digitSectionStart != 0x0101) {
+		printf("WARNING: Unknown start to digits section 0x%04X\n", digitSectionStart);
 	}
 	u16 digitsCounter = 0;
 
@@ -222,7 +223,6 @@ int main(int argc, char * argv[]) {
 		printOwh(&dh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
 		if(dump) {
 			for(size_t i=0; i<10; i++) {
-				//sscatprintf(watchFaceStr, "dh.owh[%zu]    0x%08X, %3u, %3u\n", i, dh->owh[i].offset,  dh->owh[i].width, dh->owh[i].height);
 				sprintf(&dfnBuf[baseSize], "digit_%u_%zu.%s", dh->digitSet, i, (format==FMT_BMP?"bmp":"raw"));
 				dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].width, dh->owh[i].height, format);
 			}					
@@ -311,9 +311,9 @@ int main(int argc, char * argv[]) {
 					offset += sizeof(StepsNumHeader);
 				break;
 			case 0x0901:
-				// KCalHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  KCalHeader\n", offset);
-				offset += sizeof(KCalHeader);
+				// KCalNumHeader
+				sscatprintf(watchFaceStr, "@ 0x%08zX  KCalNumHeader\n", offset);
+				offset += sizeof(KCalNumHeader);
 				break;
 			case 0x0A01:
 				// HandsHeader
@@ -370,7 +370,6 @@ int main(int argc, char * argv[]) {
 				offset += sizeof(Unknown1D01);
 				break;
 			case 0x2301:
-				// 
 				// Unknown2301 * u2h = (Unknown2301 *)&fileData[offset];
 				sscatprintf(watchFaceStr, "@ 0x%08zX  Unknown2301Header.\n", offset);
 				offset += sizeof(Unknown2301);

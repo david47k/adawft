@@ -26,14 +26,13 @@ typedef struct _FaceHeaderN {
 	u16 previewWidth;		// 8C 00 -- width of preview image
 	u16 previewHeight;		// A3 00 -- height of preview image
 	u16 dhOffset;			// Offset of the DigitsHeader(s). Usually 0x0010. Seen as 0 for an analog-only watchface using API10.
-	u16 bhOffset;			// Offset of the background image (a ImageHeader). Also where the digits and altDigits end.
+	u16 bhOffset;			// Offset of the background image (an ImageHeader). Also where the digits end.
 } FaceHeaderN;
 
-// DigitsHeader(s) are typically located between the FaceHeader and the background image header
-// DigitHeaders start with 0101
+// DigitsHeader(s) are usually located between the FaceHeader and the background image header
+// The region starts with 0101 then is followed by DigitHeader(s)
 
 // Digital clocks have a DigitsHeader, Analog-Only clocks don't.
-// Can be time (HHMM) digits, or day number (DD) digits
 typedef struct _DigitsHeader {
 	u8 digitSet;				// What number to call this set of digits
 	OffsetWidthHeight owh[10];	// Offset, Width and Height of all the digit images 0-9.
@@ -62,14 +61,14 @@ typedef struct _DayNameHeader {
 	u16 type;				// 0x0401
 	u8 subtype;				// 01
 	XY xy;
-	OffsetWidthHeight owh[7];
+	OffsetWidthHeight owh[7];	// Location of the image data, and width and height of the images
 } DayNameHeader;
 
 // Battery charge displayed as an image with a specified fill region
 typedef struct _BatteryFillHeader {
 	u16 type;				// 0x0501
 	XY xy;
-	OffsetWidthHeight owh;
+	OffsetWidthHeight owh;	// Location of the battery charge background image data, and width and height of the image
 	u8 x1;					// subsection for watch to fill, coords from image top left
 	u8 y1;					
 	u8 x2;					
@@ -99,13 +98,13 @@ typedef struct _StepsNumHeader {
 } StepsNumHeader;
 
 // KCal displayed as a number
-typedef struct _KCalHeader {
+typedef struct _KCalNumHeader {
 	u16 type;				// 0x0901
 	u8 digitSet;			// suspected digit set # (font)
-	u8 justification;			// suspect justification (L, R, C)
-	XY xy;					// xy, centered text in this case
-	u8 unknown2[11];		// 0, size could be wrong
-} KCalHeader;
+	u8 justification;		// suspect justification (L, R, C)
+	XY xy;					// xy
+	u8 unknown2[11];		// 0
+} KCalNumHeader;
 
 // HandsHeader is for analog watchface hands
 typedef struct _HandsHeader {

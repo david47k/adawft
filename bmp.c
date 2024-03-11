@@ -93,7 +93,7 @@ void setBMPHeaderClassic(BMPHeaderClassic * dest, u32 width, u32 height, u8 bpp)
 
 
 
-// Set up a BMP header. bpp must be 16 or 24.
+// Set up a BMP header. bpp must be 16, 24, or 32.
 void setBMPHeaderV4(BMPHeaderV4 * dest, u32 width, u32 height, u8 bpp) {
 	*dest = (BMPHeaderV4){ 0 };
 	dest->sig = 0x4D42;
@@ -125,7 +125,7 @@ void setBMPHeaderV4(BMPHeaderV4 * dest, u32 width, u32 height, u8 bpp) {
 }
 
 
-// Set up a BMP header. bpp must be 16 or 24.
+// Set up a BMP header. bpp must be 16, 24, or 32.
 void setBMPHeaderV5(BMPHeaderV5 * dest, u32 width, u32 height, u8 bpp) {
 	*dest = (BMPHeaderV5){ 0 };
 	dest->sig = 0x4D42;
