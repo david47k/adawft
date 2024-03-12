@@ -20,7 +20,9 @@ size_t d_strlcat(char * dst, const char * src, size_t dstSize);
 #define ssprintf(dst, ...) snprintf(dst, sizeof(dst), __VA_ARGS__)
 #define sstrcat(dst, str) d_strlcat(dst, str, sizeof(str));
 #define sscatprintf(dst, ...) snprintf(&dst[strlen(dst)], sizeof(dst) - strlen(dst), __VA_ARGS__)
-#define dprintf(lvl, ...) (lvl<=DEBUG_LEVEL?printf(__VA_ARGS__):)
+
+// Debug print -- only print if DEBUG_LEVEL is >= lvl
+#define dprintf(lvl, ...) ((DEBUG_LEVEL>=lvl)?(printf(__VA_ARGS__)):(0))
 
 // Boolean string compare.
 #define streq(a,b) (strcmp(a,b)==0)

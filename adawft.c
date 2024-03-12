@@ -34,6 +34,9 @@
 #include "strutil.h"
 #include "cjson/cJSON.h"
 
+// GLOBAL
+int DEBUG_LEVEL = 2;
+
 //----------------------------------------------------------------------------
 //  API_VER_INFO - information about what is supported at each API level
 //----------------------------------------------------------------------------
@@ -60,10 +63,9 @@ static const ApiVerInfo API_VER_INFO[] = {
 //  PRINT OFFSET, WIDTH, HEIGHT ARRAY TO STRING
 //----------------------------------------------------------------------------
 
-void printOwh(OffsetWidthHeight * owh, size_t count, const char * name, char * dstBuf, size_t dstBufSize) {
+void printOwh(OffsetWidthHeight * owh, size_t count, const char * name) {
 	for(size_t i=0; i<count; i++) {
-		snprintf(&dstBuf[strlen(dstBuf)], dstBufSize - strlen(dstBuf), 
-			"%s[%zu]    0x%08X, %3u, %3u\n", name, i, owh[i].offset, owh[i].width, owh[i].height);
+		dprintf(3, "%s[%zu]    0x%08X, %3u, %3u\n", name, i, owh[i].offset, owh[i].width, owh[i].height);
 	}
 }
 
@@ -81,11 +83,11 @@ int main(int argc, char * argv[]) {
 	bool fileNameSet = false;
 
 	// display basic program header
-    printf("\n%s\n\n","adawft: Alternate Da Watch Face Tool for MO YOUNG / DA FIT binary watch face files.");
+    dprintf(1, "\n%s\n\n","adawft: Alternate Da Watch Face Tool for MO YOUNG / DA FIT binary watch face files.");
     
 	// check byte order
 	if(!systemIsLittleEndian()) {
-		printf("Sorry, this system is big-endian, and this program has only been designed for little-endian systems.\n");
+		dprintf(0, "Sorry, this system is big-endian, and this program has only been designed for little-endian systems.\n");
 		return 1;
 	}
 
@@ -111,10 +113,15 @@ int main(int argc, char * argv[]) {
 			if(strlen(argv[i]) >= 8 && argv[i][6] == '=') {
 				folderName = &argv[i][7];
 			}
-		} else if(streqn(argv[i], "--help", 6)) {
+		} else if(streqn(argv[i], "--debug", 6)) {
+			DEBUG_LEVEL = 3;
+			if(strlen(argv[i]) >= 9 && argv[i][7] == '=') {
+				DEBUG_LEVEL = atoi(&argv[i][8]);
+			}
+		}else if(streqn(argv[i], "--help", 6)) {
 			showHelp = true;
 		} else if(streqn(argv[i], "--", 2)) {
-			printf("ERROR: Unknown option: %s\n", argv[i]);
+			dprintf(0, "ERROR: Unknown option: %s\n", argv[i]);
 			showHelp = true;
 		} else {
 			// must be fileName
@@ -122,27 +129,28 @@ int main(int argc, char * argv[]) {
 				fileName = argv[i];
 				fileNameSet = true;
 			} else {
-				printf("WARNING: Ignored unknown parameter: %s\n", argv[i]);
+				dprintf(0, "WARNING: Ignored unknown parameter: %s\n", argv[i]);
 			}
 		}
 	}
 
 	// display help
     if(argc<2 || showHelp) {
-		printf("Usage:   %s [OPTIONS] FILENAME\n\n",basename);
-		printf("%s\n","  OPTIONS");
-		printf("%s\n","    --dump=FOLDERNAME    Dump data to folder. Folder name defaults to 'dump'.");
-		printf("%s\n","    --raw                When dumping, dump raw (compressed) files.");
-		printf("%s\n","    --semiraw            When dumping, dump semiraw (decompressed raw bitmap) files.");
-		printf("%s\n","  FILENAME               Binary watch face file for input.");
-		printf("\n");
+		dprintf(0, "Usage:   %s [OPTIONS] FILENAME\n\n",basename);
+		dprintf(0, "%s\n","  OPTIONS");
+		dprintf(0, "%s\n","    --dump=FOLDERNAME    Dump data to folder. Folder name defaults to 'dump'.");
+		dprintf(0, "%s\n","    --raw                When dumping, dump raw (compressed) files.");
+		dprintf(0, "%s\n","    --semiraw            When dumping, dump semiraw (decompressed raw bitmap) files.");
+		dprintf(0, "%s\n","    --debug=LEVEL        Print more debug info. Range 0 to 3.");
+		dprintf(0, "%s\n","  FILENAME               Binary watch face file for input.");
+		dprintf(0, "\n");
 		return 0;
     }
 
 	// Open the binary input file
 	Bytes * bytes = newBytesFromFile(fileName);
 	if(bytes == NULL) {
-		printf("ERROR: Failed to read file into memory.\n");
+		dprintf(0, "ERROR: Failed to read file into memory.\n");
 		return 1;
 	}
 
@@ -151,38 +159,35 @@ int main(int argc, char * argv[]) {
 
 	// Check file size
 	if(fileSize < sizeof(FaceHeaderN)) {
-		printf("ERROR: File is less than the header size (%zu bytes)!\n", sizeof(FaceHeaderN));
+		dprintf(0, "ERROR: File is less than the header size (%zu bytes)!\n", sizeof(FaceHeaderN));
 		deleteBytes(bytes);
 		return 1;
 	}
-
-	// store discovered data in string, for saving to file
-	char watchFaceStr[32000] = "";		// have enough room for all the lines we need to store
 
 	// Load header struct from file
 	FaceHeaderN * h = (FaceHeaderN *)&fileData[0];		// interpret it directly
 
 	// Print header info	
-	sscatprintf(watchFaceStr, "apiVer          %u\n", h->apiVer);
-	sscatprintf(watchFaceStr, "unknown0        0x%04X\n", h->unknown0);
-	sscatprintf(watchFaceStr, "unknown1        0x%04X\n", h->unknown1);
-	sscatprintf(watchFaceStr, "unknown2        %u\n", h->unknown2);
-	sscatprintf(watchFaceStr, "previewWidth    %u\n", h->previewWidth);
-	sscatprintf(watchFaceStr, "previewHeight   %u\n", h->previewHeight);
-	sscatprintf(watchFaceStr, "dhOffset        0x%04X\n", h->dhOffset);
-	sscatprintf(watchFaceStr, "bhOffset        0x%04X\n", h->bhOffset);
+	dprintf(2, "apiVer          %u\n", h->apiVer);
+	dprintf(2, "unknown0        0x%04X\n", h->unknown0);
+	dprintf(2, "unknown1        0x%04X\n", h->unknown1);
+	dprintf(2, "unknown2        %u\n", h->unknown2);
+	dprintf(2, "previewWidth    %u\n", h->previewWidth);
+	dprintf(2, "previewHeight   %u\n", h->previewHeight);
+	dprintf(2, "dhOffset        0x%04X\n", h->dhOffset);
+	dprintf(2, "bhOffset        0x%04X\n", h->bhOffset);
 	
 	// Everything should have a background (I hope!)
 	ImageHeader * bgh = (ImageHeader *)&fileData[h->bhOffset];
-	sscatprintf(watchFaceStr, "bgh.xy          %3u, %3u\n", bgh->xy.x, bgh->xy.y);
-	sscatprintf(watchFaceStr, "bgh.owh         0x%08X, %3u, %3u\n", bgh->offset, bgh->width, bgh->height);
+	dprintf(2, "bgh.xy          %3u, %3u\n", bgh->xy.x, bgh->xy.y);
+	dprintf(2, "bgh.owh         0x%08X, %3u, %3u\n", bgh->offset, bgh->width, bgh->height);
 
 	// Create a buffer for storing the dump filenames
 	char dfnBuf[1024];
 	snprintf(dfnBuf, sizeof(dfnBuf), "%s%s", folderName, DIR_SEPERATOR);
 	size_t baseSize = strlen(dfnBuf);
 	if(baseSize + 16 >= sizeof(dfnBuf)) {
-		printf("ERROR: dfnBuf too small!\n");
+		dprintf(0, "ERROR: dfnBuf too small!\n");
 		deleteBytes(bytes);
 		return 1;
 	}
@@ -210,17 +215,17 @@ int main(int argc, char * argv[]) {
 	u16 digitSectionStart = get_u16(&fileData[offset]);
 	offset += 2;
 	if(digitSectionStart != 0x0101) {
-		printf("WARNING: Unknown start to digits section 0x%04X\n", digitSectionStart);
+		dprintf(0, "WARNING: Unknown start to digits section 0x%04X\n", digitSectionStart);
 	}
 	u16 digitsCounter = 0;
 
 	while(more) {
 		DigitsHeader * dh = (DigitsHeader *)&fileData[offset];
-		sscatprintf(watchFaceStr, "@ 0x%08zX  DigitsHeader (%u)\n", offset, dh->digitSet);
+		dprintf(2, "@ 0x%08zX  DigitsHeader (%u)\n", offset, dh->digitSet);
 		// what digit font is it
 		sprintf(sbuf, "digit[%u].owh", dh->digitSet);
 		// print all the details
-		printOwh(&dh->owh[0], 10, sbuf, watchFaceStr, sizeof(watchFaceStr));
+		printOwh(&dh->owh[0], 10, sbuf);
 		if(dump) {
 			for(size_t i=0; i<10; i++) {
 				sprintf(&dfnBuf[baseSize], "digit_%u_%zu.%s", dh->digitSet, i, (format==FMT_BMP?"bmp":"raw"));
@@ -242,20 +247,20 @@ int main(int argc, char * argv[]) {
 		switch(type) {
 			case 0x0000:
 				// End of header section
-				sscatprintf(watchFaceStr, "@ 0x%08zX  0000 (End of headers)\n", offset);
+				dprintf(2, "@ 0x%08zX  0000 (End of headers)\n", offset);
 				offset += 2;
 				more = false;
 				break;
 			case 0x0001:
 				// ImageHeader for images
 				if(offset == h->bhOffset) {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  ImageHeader (Background)\n", offset);
+					dprintf(2, "@ 0x%08zX  ImageHeader (Background)\n", offset);
 				} else {
-					sscatprintf(watchFaceStr, "@ 0x%08zX  ImageHeader\n", offset);
+					dprintf(2, "@ 0x%08zX  ImageHeader\n", offset);
 					ImageHeader * imageh = (ImageHeader *)&fileData[offset];
-					sscatprintf(watchFaceStr, "imageh.type    0x%04X\n", imageh->type);
-					sscatprintf(watchFaceStr, "imageh.xy      %3u, %3u\n", imageh->xy.x, imageh->xy.y);
-					sscatprintf(watchFaceStr, "imageh.owh     0x%08X, %3u, %3u\n", imageh->offset, imageh->width, imageh->height);					
+					dprintf(3, "imageh.type    0x%04X\n", imageh->type);
+					dprintf(3, "imageh.xy      %3u, %3u\n", imageh->xy.x, imageh->xy.y);
+					dprintf(3, "imageh.owh     0x%08X, %3u, %3u\n", imageh->offset, imageh->width, imageh->height);					
 					if(dump) {		
 						sprintf(&dfnBuf[baseSize], "image_%u.%s", imageCounter++, (format==FMT_BMP?"bmp":"raw"));
 						dumpImage(dfnBuf, &fileData[imageh->offset], imageh->width, imageh->height, format);
@@ -265,14 +270,14 @@ int main(int argc, char * argv[]) {
 				break;
 			case 0x0201:
 				// TimeHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  TimeHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  TimeHeader\n", offset);
 				TimeHeader * time = (TimeHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "                digitSet: %u %u %u %u\n", time->digitSet[0], time->digitSet[1], time->digitSet[2], time->digitSet[3]);
+				dprintf(3, "                digitSet: %u %u %u %u\n", time->digitSet[0], time->digitSet[1], time->digitSet[2], time->digitSet[3]);
 				offset += sizeof(TimeHeader);
 				break;				
 			case 0x0401:
 				// DayNameHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  DayNameHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  DayNameHeader\n", offset);
 				DayNameHeader * dname = (DayNameHeader *)&fileData[offset];
 				if(dump) {
 					for(size_t i=0; i<7; i++) {
@@ -284,7 +289,7 @@ int main(int argc, char * argv[]) {
 				break;
 			case 0x0501:
 				// BatteryFillHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  BatteryFillHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  BatteryFillHeader\n", offset);
 				BatteryFillHeader * batteryFill = (BatteryFillHeader *)&fileData[offset];
 				if(dump) {
 					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 0, (format==FMT_BMP?"bmp":"raw"));
@@ -298,26 +303,26 @@ int main(int argc, char * argv[]) {
 				break;
 			case 0x0601:
 				// HeartRateNumHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  HeartRateNumHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  HeartRateNumHeader\n", offset);
 				HeartRateNumHeader * hrn = (HeartRateNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", hrn->digitSet, hrn->justification);
+				dprintf(3, "                digitSet: %u, justification: %u\n", hrn->digitSet, hrn->justification);
 				offset += sizeof(HeartRateNumHeader);
 				break;
 			case 0x0701:
 				// StepsNumHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  StepsNumHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  StepsNumHeader\n", offset);
 				StepsNumHeader * sn = (StepsNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", sn->digitSet, sn->justification);
+				dprintf(3, "                digitSet: %u, justification: %u\n", sn->digitSet, sn->justification);
 					offset += sizeof(StepsNumHeader);
 				break;
 			case 0x0901:
 				// KCalNumHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  KCalNumHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  KCalNumHeader\n", offset);
 				offset += sizeof(KCalNumHeader);
 				break;
 			case 0x0A01:
 				// HandsHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  HandsHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  HandsHeader\n", offset);
 				HandsHeader * hands = (HandsHeader *)&fileData[offset];				
 				if(dump) {		
 					sprintf(&dfnBuf[baseSize], "hand_%u.%s", hands->subtype, (format==FMT_BMP?"bmp":"raw"));
@@ -327,22 +332,22 @@ int main(int argc, char * argv[]) {
 				break;
 			case 0x0D01:
 				// DayNumHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  DayNumHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  DayNumHeader\n", offset);
 				DayNumHeader * dn = (DayNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", dn->digitSet, dn->justification);
+				dprintf(3, "                digitSet: %u, justification: %u\n", dn->digitSet, dn->justification);
 				offset += sizeof(DayNumHeader);
 				break;
 			case 0x0F01:
 				// MonthNumHeader
-				sscatprintf(watchFaceStr, "@ 0x%08zX  MonthNumHeader\n", offset);
+				dprintf(2, "@ 0x%08zX  MonthNumHeader\n", offset);
 				MonthNumHeader * mn = (MonthNumHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "                digitSet: %u, justification: %u\n", mn->digitSet, mn->justification);
+				dprintf(3, "                digitSet: %u, justification: %u\n", mn->digitSet, mn->justification);
 				offset += sizeof(MonthNumHeader);
 				break;
 			case 0x1201:
 				// BarDisplayHeader
 				BarDisplayHeader * bdh = (BarDisplayHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "@ 0x%08zX  BarDisplayHeader. subtype: %u. count: %u.\n", offset, bdh->subtype, bdh->count);
+				dprintf(2, "@ 0x%08zX  BarDisplayHeader. subtype: %u. count: %u.\n", offset, bdh->subtype, bdh->count);
 				if(dump) {
 					for(size_t i=0; i<bdh->count; i++) {
 						sprintf(&dfnBuf[baseSize], "bardisplay_%u_%zu.%s", bdh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
@@ -354,7 +359,7 @@ int main(int argc, char * argv[]) {
 			case 0x1B01:
 				// WeatherHeader
 				WeatherHeader * wh = (WeatherHeader *)&fileData[offset];
-				sscatprintf(watchFaceStr, "@ 0x%08zX  WeatherHeader. subtype: %u.\n", offset, wh->subtype);
+				dprintf(2, "@ 0x%08zX  WeatherHeader. subtype: %u.\n", offset, wh->subtype);
 				if(dump) {
 					for(size_t i=0; i<wh->subtype; i++) {
 						sprintf(&dfnBuf[baseSize], "weather_%u_%zu.%s", wh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
@@ -366,29 +371,26 @@ int main(int argc, char * argv[]) {
 			case 0x1D01:
 				// 
 				Unknown1D01 * u1h = (Unknown1D01 *)&fileData[offset];
-				sscatprintf(watchFaceStr, "@ 0x%08zX  Unknown1D01Header. unknown: %u.\n", offset, u1h->unknown);
+				dprintf(1, "@ 0x%08zX  Unknown1D01Header. unknown: %u.\n", offset, u1h->unknown);
 				offset += sizeof(Unknown1D01);
 				break;
 			case 0x2301:
 				// Unknown2301 * u2h = (Unknown2301 *)&fileData[offset];
-				sscatprintf(watchFaceStr, "@ 0x%08zX  Unknown2301Header.\n", offset);
+				dprintf(1, "@ 0x%08zX  Unknown2301Header.\n", offset);
 				offset += sizeof(Unknown2301);
 				break;	
 			default:
 				// UNKNOWN DATA
-				sscatprintf(watchFaceStr, "@ 0x%08zX  UNKNOWN TYPE 0x%04X\n", offset, type);
-				sscatprintf(watchFaceStr, "ERROR: Unknown type found. Stopping early.\n");
+				dprintf(0, "@ 0x%08zX  UNKNOWN TYPE 0x%04X\n", offset, type);
+				dprintf(0, "ERROR: Unknown type found. Stopping early.\n");
 				more = false;
 				break;
 		}
 	}
 
-	// display all the important data
-	printf("%s", watchFaceStr);		
-
 	// clean up
 	deleteBytes(bytes);
-	printf("\ndone.\n\n");
+	dprintf(1, "\ndone.\n\n");
 
     return 0; // SUCCESS
 }
