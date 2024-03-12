@@ -32,7 +32,7 @@
 #include "bmp.h"
 #include "dump.h"
 #include "strutil.h"
-
+#include "cjson/cJSON.h"
 
 //----------------------------------------------------------------------------
 //  API_VER_INFO - information about what is supported at each API level

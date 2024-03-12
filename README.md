@@ -6,7 +6,7 @@ The tool for the older watch face files is [here](https://github.com/david47k/da
 
 ## Building
 
-Run `make release` to compile the program using clang, or `make release-gcc` to compile the program using gcc. 
+Run `make` to compile the program using gcc, or `make debug-clang` to compile the program using clang. 
 
 ## Supported watches
 
