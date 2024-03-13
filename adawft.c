@@ -24,6 +24,7 @@
 #include <stdbool.h>
 #include <sys/stat.h>		// for mkdir()
 #include <assert.h>
+#include <stdarg.h>
 
 #include "types.h"
 #include "face_new.h"
@@ -38,7 +39,6 @@
 //----------------------------------------------------------------------------
 //  API_VER_INFO - information about what is supported at each API level
 //----------------------------------------------------------------------------
-
 typedef struct _ApiVerInfo {
 	u8 apiVer;
 	const char * description;
@@ -60,28 +60,35 @@ static const ApiVerInfo API_VER_INFO[] = {
 //----------------------------------------------------------------------------
 //  PRINT OFFSET, WIDTH, HEIGHT ARRAY TO STRING
 //----------------------------------------------------------------------------
-
 void printOwh(OffsetWidthHeight * owh, size_t count, const char * name) {
 	for(size_t i=0; i<count; i++) {
 		dprintf(3, "%s[%zu]    0x%08X, %3u, %3u\n", name, i, owh[i].offset, owh[i].width, owh[i].height);
 	}
 }
 
+
 //----------------------------------------------------------------------------
 //  NULLCHECK - check for null errors (e.g. out of memory)
 //----------------------------------------------------------------------------
-void nullcheck(void * ptr) {
+void nullcheck(void * ptr, ...) {
 	if(ptr==NULL) {
 		printf("ERROR: Null pointer (out of memory?)\n");
 		exit(1);
 	}
+	va_list args;
+    va_start(args, ptr);
+	ptr = va_arg(args, void *);
+	if(ptr==NULL) {
+		printf("ERROR: Null pointer (out of memory?)\n");
+		exit(1);
+	}
+	va_end(args);
 }
 
 
 //----------------------------------------------------------------------------
 //  MAIN
 //----------------------------------------------------------------------------
-
 int main(int argc, char * argv[]) {
 	char * fileName = "";
 	char * folderName = "dump";
@@ -185,11 +192,6 @@ int main(int argc, char * argv[]) {
 	dprintf(2, "dhOffset        0x%04X\n", h->dhOffset);
 	dprintf(2, "bhOffset        0x%04X\n", h->bhOffset);
 	
-	// Everything should have a background (I hope!)
-	ImageHeader * bgh = (ImageHeader *)&fileData[h->bhOffset];
-	dprintf(2, "bgh.xy          %3u, %3u\n", bgh->xy.x, bgh->xy.y);
-	dprintf(2, "bgh.owh         0x%08X, %3u, %3u\n", bgh->offset, bgh->width, bgh->height);
-
 	// Create JSON structure to hold all the data
 	cJSON * cj = cJSON_CreateObject();
 	nullcheck(cj);
@@ -204,8 +206,7 @@ int main(int argc, char * argv[]) {
 	cJSON_AddNumberToObject(cj, "preview_height", h->previewHeight);
 	cJSON * cjdigits = cJSON_AddArrayToObject(cj, "digits");
 	cJSON * cjwidgets = cJSON_AddArrayToObject(cj, "widgets");
-	nullcheck(cjdigits);
-	nullcheck(cjwidgets);
+	nullcheck(cjdigits, cjwidgets);
 
 	// Create a buffer for storing the dump filenames
 	char dfnBuf[1024];
@@ -217,35 +218,27 @@ int main(int argc, char * argv[]) {
 		deleteBytes(bytes);
 		return 1;
 	}
-
-	// Store some counters for filenames
-	u16 imageCounter = 0;
-
-	// Buffer for temporary string data
-	char sbuf[32];
+	
+	u16 digitsCounter = 0;			// A counter to count digit sets
+	u16 imageCounter = 0;			// A counter to count images
+	char sbuf[32];					// Buffer for temporary string data
 
 	// First we check the digits headers. They come before the background header
 
-	bool more = true;
-	if(h->dhOffset == 0) {
-		more = false; 	// no digits headers to process
-	}
-
 	size_t offset = h->dhOffset;	// Usually 0x10
+	
+	// Read the introduction to the digit section 0x0101
 	u16 digitSectionStart = get_u16(&fileData[offset]);
-	offset += 2;
 	if(digitSectionStart != 0x0101) {
 		dprintf(0, "WARNING: Unknown start to digits section 0x%04X\n", digitSectionStart);
 	}
-	u16 digitsCounter = 0;
-
-	while(more) {
+	offset += 2;
+	
+	while((offset < h->bhOffset) && (h->dhOffset != 0)) {	// while we are in the digits section, and the digits section actually exists
 		DigitsHeader * dh = (DigitsHeader *)&fileData[offset];
 		dprintf(2, "@ 0x%08zX  DigitsHeader (%u)\n", offset, dh->digitSet);
-		// what digit font is it
 		sprintf(sbuf, "digit[%u].owh", dh->digitSet);
-		// print all the details
-		printOwh(&dh->owh[0], 10, sbuf);
+		printOwh(&dh->owh[0], 10, sbuf);					// print all the details
 		if(dump) {
 			cJSON * digits = cJSON_CreateObject();
 			cJSON_AddNumberToObject(digits, "set", dh->digitSet);
@@ -266,15 +259,12 @@ int main(int argc, char * argv[]) {
 		}
 		offset += sizeof(DigitsHeader);
 		digitsCounter++;
-		if(offset >= h->bhOffset) {
-			more = false;
-		}
 	}
 
 	// Now we check the rest of the headers
 
 	offset = h->bhOffset;
-	more = true;
+	bool more = true;
 	while(more) {
 		u8 one = fileData[offset];
 		u8 type = fileData[offset+1];
@@ -378,7 +368,7 @@ int main(int argc, char * argv[]) {
 				dprintf(2, "@ 0x%08zX  StepsNumHeader\n", offset);
 				StepsNumHeader * sn = (StepsNumHeader *)&fileData[offset];
 				dprintf(3, "                digitSet: %u, justification: %u\n", sn->digitSet, sn->justification);
-					offset += sizeof(StepsNumHeader);
+				offset += sizeof(StepsNumHeader);
 				break;
 			case 0x09:
 				// KCalNumHeader
