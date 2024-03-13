@@ -7,6 +7,9 @@
 #include "types.h"
 #include "strutil.h"
 
+// GLOBAL
+int DEBUG_LEVEL = 1;
+
 // Non-destructive string token finder.
 // Tokens are seperated by any amount of ' ' or \t.
 // Tokens are printable ascii.

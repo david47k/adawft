@@ -34,8 +34,6 @@
 #include "strutil.h"
 #include "cjson/cJSON.h"
 
-// GLOBAL
-int DEBUG_LEVEL = 2;
 
 //----------------------------------------------------------------------------
 //  API_VER_INFO - information about what is supported at each API level
@@ -69,6 +67,16 @@ void printOwh(OffsetWidthHeight * owh, size_t count, const char * name) {
 	}
 }
 
+//----------------------------------------------------------------------------
+//  NULLCHECK - check for null errors (e.g. out of memory)
+//----------------------------------------------------------------------------
+void nullcheck(void * ptr) {
+	if(ptr==NULL) {
+		printf("ERROR: Null pointer (out of memory?)\n");
+		exit(1);
+	}
+}
+
 
 //----------------------------------------------------------------------------
 //  MAIN
@@ -82,9 +90,6 @@ int main(int argc, char * argv[]) {
 	bool showHelp = false;
 	bool fileNameSet = false;
 
-	// display basic program header
-    dprintf(1, "\n%s\n\n","adawft: Alternate Da Watch Face Tool for MO YOUNG / DA FIT binary watch face files.");
-    
 	// check byte order
 	if(!systemIsLittleEndian()) {
 		dprintf(0, "Sorry, this system is big-endian, and this program has only been designed for little-endian systems.\n");
@@ -134,6 +139,9 @@ int main(int argc, char * argv[]) {
 		}
 	}
 
+	// display basic program header
+    dprintf(1, "\n%s\n\n","adawft: Alternate Da Watch Face Tool for MO YOUNG / DA FIT binary watch face files.");
+ 
 	// display help
     if(argc<2 || showHelp) {
 		dprintf(0, "Usage:   %s [OPTIONS] FILENAME\n\n",basename);
@@ -182,30 +190,42 @@ int main(int argc, char * argv[]) {
 	dprintf(2, "bgh.xy          %3u, %3u\n", bgh->xy.x, bgh->xy.y);
 	dprintf(2, "bgh.owh         0x%08X, %3u, %3u\n", bgh->offset, bgh->width, bgh->height);
 
+	// Create JSON structure to hold all the data
+	cJSON * cj = cJSON_CreateObject();
+	nullcheck(cj);
+	cJSON_AddStringToObject(cj, "type", "extrathunder watchface");
+	cJSON_AddNumberToObject(cj, "rev", 0);
+	cJSON_AddNumberToObject(cj, "tpls", 0);
+	cJSON_AddNumberToObject(cj, "api_ver", h->apiVer);
+	cJSON_AddNumberToObject(cj, "unknown0", h->unknown0);
+	cJSON_AddNumberToObject(cj, "unknown1", h->unknown1);
+	cJSON_AddNumberToObject(cj, "unknown2", h->unknown2);
+	cJSON_AddNumberToObject(cj, "preview_width", h->previewWidth);
+	cJSON_AddNumberToObject(cj, "preview_height", h->previewHeight);
+	cJSON * cjdigits = cJSON_AddArrayToObject(cj, "digits");
+	cJSON * cjwidgets = cJSON_AddArrayToObject(cj, "widgets");
+	nullcheck(cjdigits);
+	nullcheck(cjwidgets);
+
 	// Create a buffer for storing the dump filenames
 	char dfnBuf[1024];
+	char fnBuf[32];
 	snprintf(dfnBuf, sizeof(dfnBuf), "%s%s", folderName, DIR_SEPERATOR);
 	size_t baseSize = strlen(dfnBuf);
-	if(baseSize + 16 >= sizeof(dfnBuf)) {
+	if(baseSize + 32 >= sizeof(dfnBuf)) {
 		dprintf(0, "ERROR: dfnBuf too small!\n");
 		deleteBytes(bytes);
 		return 1;
-	}
-
-	// Dump the background
-	if(dump) {		
-		sprintf(&dfnBuf[baseSize], "background.%s", (format==FMT_BMP?"bmp":"raw"));
-		dumpImage(dfnBuf, &fileData[bgh->offset], bgh->width, bgh->height, format);
 	}
 
 	// Store some counters for filenames
 	u16 imageCounter = 0;
 
 	// Buffer for temporary string data
-	char sbuf[20];
+	char sbuf[32];
 
 	// First we check the digits headers. They come before the background header
-	
+
 	bool more = true;
 	if(h->dhOffset == 0) {
 		more = false; 	// no digits headers to process
@@ -227,10 +247,22 @@ int main(int argc, char * argv[]) {
 		// print all the details
 		printOwh(&dh->owh[0], 10, sbuf);
 		if(dump) {
+			cJSON * digits = cJSON_CreateObject();
+			cJSON_AddNumberToObject(digits, "set", dh->digitSet);
+			cJSON * arr = cJSON_AddArrayToObject(digits, "files");
+			cJSON_AddNumberToObject(digits, "unknown", dh->unknown);
 			for(size_t i=0; i<10; i++) {
-				sprintf(&dfnBuf[baseSize], "digit_%u_%zu.%s", dh->digitSet, i, (format==FMT_BMP?"bmp":"raw"));
+				sprintf(fnBuf, "digit_%u_%zu.%s", dh->digitSet, i, (format==FMT_BMP?"bmp":"raw"));
+				sprintf(&dfnBuf[baseSize], "%s", fnBuf);
 				dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].width, dh->owh[i].height, format);
-			}					
+				if(format==FMT_BMP) {
+					cJSON * obj = cJSON_CreateObject();
+					cJSON_AddStringToObject(obj, "type", "bmp");
+					cJSON_AddStringToObject(obj, "name", fnBuf);					
+					cJSON_AddItemToArray(arr, obj);
+				}
+			}
+			cJSON_AddItemToArray(cjdigits, digits);
 		}
 		offset += sizeof(DigitsHeader);
 		digitsCounter++;
@@ -240,42 +272,75 @@ int main(int argc, char * argv[]) {
 	}
 
 	// Now we check the rest of the headers
+
 	offset = h->bhOffset;
 	more = true;
 	while(more) {
-		u16 type = get_u16(&fileData[offset]);
+		u8 one = fileData[offset];
+		u8 type = fileData[offset+1];
+		if(one==0) {
+			// End of header section
+			dprintf(2, "@ 0x%08zX  00 (End of headers)\n", offset);
+			offset += 2;
+			more = false;
+			break;
+		}
 		switch(type) {
-			case 0x0000:
-				// End of header section
-				dprintf(2, "@ 0x%08zX  0000 (End of headers)\n", offset);
-				offset += 2;
-				more = false;
-				break;
-			case 0x0001:
+			case 0x00:
 				// ImageHeader for images
+				ImageHeader * imageh = (ImageHeader *)&fileData[offset];
 				if(offset == h->bhOffset) {
 					dprintf(2, "@ 0x%08zX  ImageHeader (Background)\n", offset);
+					sprintf(fnBuf, "background.%s", (format==FMT_BMP?"bmp":"raw"));
 				} else {
 					dprintf(2, "@ 0x%08zX  ImageHeader\n", offset);
-					ImageHeader * imageh = (ImageHeader *)&fileData[offset];
-					dprintf(3, "imageh.type    0x%04X\n", imageh->type);
-					dprintf(3, "imageh.xy      %3u, %3u\n", imageh->xy.x, imageh->xy.y);
-					dprintf(3, "imageh.owh     0x%08X, %3u, %3u\n", imageh->offset, imageh->width, imageh->height);					
-					if(dump) {		
-						sprintf(&dfnBuf[baseSize], "image_%u.%s", imageCounter++, (format==FMT_BMP?"bmp":"raw"));
-						dumpImage(dfnBuf, &fileData[imageh->offset], imageh->width, imageh->height, format);
-					}
+					sprintf(fnBuf, "image_%u.%s", imageCounter++, (format==FMT_BMP?"bmp":"raw"));
 				}
+				dprintf(3, "imageh.one     0x%02X\n", imageh->one);
+				dprintf(3, "imageh.xy      %3u, %3u\n", imageh->xy.x, imageh->xy.y);
+				dprintf(3, "imageh.owh     0x%08X, %3u, %3u\n", imageh->offset, imageh->width, imageh->height);					
+				if(dump) {
+					sprintf(&dfnBuf[baseSize], "%s", fnBuf);
+					dumpImage(dfnBuf, &fileData[imageh->offset], imageh->width, imageh->height, format);
+					if(format==FMT_BMP) {
+						cJSON * cjimage = cJSON_CreateObject();
+						cJSON_AddStringToObject(cjimage, "name", fnBuf);
+						cJSON_AddStringToObject(cjimage, "type", "bmp");
+						cJSON_AddNumberToObject(cjimage, "w", imageh->width);
+						cJSON_AddNumberToObject(cjimage, "h", imageh->height);
+						if(offset == h->bhOffset) {
+							cJSON_AddItemToObject(cj, "background", cjimage);
+						} else {
+							cJSON_AddItemToArray(cjwidgets, cjimage);
+						}
+					}
+				}				
 				offset += sizeof(ImageHeader);
 				break;
-			case 0x0201:
+			case 0x02:
 				// TimeHeader
 				dprintf(2, "@ 0x%08zX  TimeHeader\n", offset);
 				TimeHeader * time = (TimeHeader *)&fileData[offset];
 				dprintf(3, "                digitSet: %u %u %u %u\n", time->digitSet[0], time->digitSet[1], time->digitSet[2], time->digitSet[3]);
+				if(dump) {
+					cJSON * cjtime = cJSON_CreateObject();
+					cJSON_AddNumberToObject(cjtime, "type", time->type);
+					int iArr[4] = { time->digitSet[0], time->digitSet[1], time->digitSet[2], time->digitSet[3] };
+					cJSON * cjarr = cJSON_CreateIntArray(iArr, 4);
+					cJSON_AddItemToObject(cjtime, "digit_sets", cjarr);
+					cjarr = cJSON_CreateArray();
+					for(int i=0; i<4; i++) {
+						cJSON * xy = cJSON_CreateObject();
+						cJSON_AddNumberToObject(xy, "x", time->xy[i].x);
+						cJSON_AddNumberToObject(xy, "y", time->xy[i].y);
+						cJSON_AddItemToArray(cjarr, xy);
+					}
+					cJSON_AddItemToObject(cjtime, "xys", cjarr);
+					cJSON_AddItemToArray(cjwidgets, cjtime);				
+				}								
 				offset += sizeof(TimeHeader);
 				break;				
-			case 0x0401:
+			case 0x04:
 				// DayNameHeader
 				dprintf(2, "@ 0x%08zX  DayNameHeader\n", offset);
 				DayNameHeader * dname = (DayNameHeader *)&fileData[offset];
@@ -287,7 +352,7 @@ int main(int argc, char * argv[]) {
 				}				
 				offset += sizeof(DayNameHeader);
 				break;
-			case 0x0501:
+			case 0x05:
 				// BatteryFillHeader
 				dprintf(2, "@ 0x%08zX  BatteryFillHeader\n", offset);
 				BatteryFillHeader * batteryFill = (BatteryFillHeader *)&fileData[offset];
@@ -301,26 +366,26 @@ int main(int argc, char * argv[]) {
 				}
 				offset += sizeof(BatteryFillHeader);
 				break;
-			case 0x0601:
+			case 0x06:
 				// HeartRateNumHeader
 				dprintf(2, "@ 0x%08zX  HeartRateNumHeader\n", offset);
 				HeartRateNumHeader * hrn = (HeartRateNumHeader *)&fileData[offset];
 				dprintf(3, "                digitSet: %u, justification: %u\n", hrn->digitSet, hrn->justification);
 				offset += sizeof(HeartRateNumHeader);
 				break;
-			case 0x0701:
+			case 0x07:
 				// StepsNumHeader
 				dprintf(2, "@ 0x%08zX  StepsNumHeader\n", offset);
 				StepsNumHeader * sn = (StepsNumHeader *)&fileData[offset];
 				dprintf(3, "                digitSet: %u, justification: %u\n", sn->digitSet, sn->justification);
 					offset += sizeof(StepsNumHeader);
 				break;
-			case 0x0901:
+			case 0x09:
 				// KCalNumHeader
 				dprintf(2, "@ 0x%08zX  KCalNumHeader\n", offset);
 				offset += sizeof(KCalNumHeader);
 				break;
-			case 0x0A01:
+			case 0x0A:
 				// HandsHeader
 				dprintf(2, "@ 0x%08zX  HandsHeader\n", offset);
 				HandsHeader * hands = (HandsHeader *)&fileData[offset];				
@@ -330,21 +395,21 @@ int main(int argc, char * argv[]) {
 				}
 				offset += sizeof(HandsHeader);
 				break;
-			case 0x0D01:
+			case 0x0D:
 				// DayNumHeader
 				dprintf(2, "@ 0x%08zX  DayNumHeader\n", offset);
 				DayNumHeader * dn = (DayNumHeader *)&fileData[offset];
 				dprintf(3, "                digitSet: %u, justification: %u\n", dn->digitSet, dn->justification);
 				offset += sizeof(DayNumHeader);
 				break;
-			case 0x0F01:
+			case 0x0F:
 				// MonthNumHeader
 				dprintf(2, "@ 0x%08zX  MonthNumHeader\n", offset);
 				MonthNumHeader * mn = (MonthNumHeader *)&fileData[offset];
 				dprintf(3, "                digitSet: %u, justification: %u\n", mn->digitSet, mn->justification);
 				offset += sizeof(MonthNumHeader);
 				break;
-			case 0x1201:
+			case 0x12:
 				// BarDisplayHeader
 				BarDisplayHeader * bdh = (BarDisplayHeader *)&fileData[offset];
 				dprintf(2, "@ 0x%08zX  BarDisplayHeader. subtype: %u. count: %u.\n", offset, bdh->subtype, bdh->count);
@@ -356,7 +421,7 @@ int main(int argc, char * argv[]) {
 				}						
 				offset += sizeof(BarDisplayHeader) + sizeof(OffsetWidthHeight) * (bdh->count-1);
 				break;
-			case 0x1B01:
+			case 0x1B:
 				// WeatherHeader
 				WeatherHeader * wh = (WeatherHeader *)&fileData[offset];
 				dprintf(2, "@ 0x%08zX  WeatherHeader. subtype: %u.\n", offset, wh->subtype);
@@ -368,27 +433,40 @@ int main(int argc, char * argv[]) {
 				}										
 				offset += sizeof(WeatherHeader);
 				break;
-			case 0x1D01:
+			case 0x1D:
 				// 
 				Unknown1D01 * u1h = (Unknown1D01 *)&fileData[offset];
 				dprintf(1, "@ 0x%08zX  Unknown1D01Header. unknown: %u.\n", offset, u1h->unknown);
 				offset += sizeof(Unknown1D01);
 				break;
-			case 0x2301:
+			case 0x23:
 				// Unknown2301 * u2h = (Unknown2301 *)&fileData[offset];
 				dprintf(1, "@ 0x%08zX  Unknown2301Header.\n", offset);
 				offset += sizeof(Unknown2301);
 				break;	
 			default:
 				// UNKNOWN DATA
-				dprintf(0, "@ 0x%08zX  UNKNOWN TYPE 0x%04X\n", offset, type);
+				dprintf(0, "@ 0x%08zX  UNKNOWN TYPE 0x%02X (one=0x%02X)\n", offset, type, one);
 				dprintf(0, "ERROR: Unknown type found. Stopping early.\n");
 				more = false;
 				break;
 		}
 	}
 
+	// if we are dumping, then save the json file
+	if(dump) {
+		// json filename
+		dprintf(2, "Saving JSON data... ");
+		sprintf(fnBuf, "watchface.json");
+		sprintf(&dfnBuf[baseSize], "%s", fnBuf);
+		char * jsonString = cJSON_Print(cj);
+		dumpBlob(dfnBuf, (u8 *)jsonString, strlen(jsonString));
+		free(jsonString);
+		dprintf(2, "done.\n");
+	}
+
 	// clean up
+	cJSON_Delete(cj);
 	deleteBytes(bytes);
 	dprintf(1, "\ndone.\n\n");
 

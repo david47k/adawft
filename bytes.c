@@ -9,6 +9,7 @@
 
 #include "types.h"
 #include "bytes.h"
+#include "strutil.h"
 
 
 //----------------------------------------------------------------------------
@@ -19,7 +20,7 @@ Bytes * newBytesFromFile(const char * fileName) {
 	// Open the binary input file
     FILE * f = fopen(fileName, "rb");
     if(f==NULL) {
-		printf("ERROR: Failed to open input file: '%s'\n", fileName);
+		dprintf(0, "ERROR: Failed to open input file: '%s'\n", fileName);
 		return NULL;
     }
 
@@ -32,7 +33,7 @@ Bytes * newBytesFromFile(const char * fileName) {
 	// Allocate buffer
 	Bytes * b = (Bytes *)malloc(sizeof(Bytes)+fileSize);
 	if(b == NULL) {
-		printf("ERROR: Unable to allocate enough memory to open file.\n");
+		dprintf(0, "ERROR: Unable to allocate enough memory to open file (NBFF).\n");
 		fclose(f);
 		return NULL;
 	}
@@ -40,7 +41,7 @@ Bytes * newBytesFromFile(const char * fileName) {
 	b->size = fileSize;	
  	// Read whole file
 	if(fread(b->data, 1, fileSize, f) != fileSize) {
-		printf("ERROR: Read failed.\n");
+		dprintf(0, "ERROR: Read failed.\n");
 		fclose(f);
 		free(b);
 		return NULL;
@@ -62,7 +63,7 @@ Bytes * newBytesFromMemory(const u8 * data, size_t size) {
 	// Allocate buffer
 	Bytes * b = (Bytes *)malloc(sizeof(Bytes)+size);
 	if(b == NULL) {
-		printf("ERROR: Unable to allocate enough memory.\n");
+		dprintf(0, "ERROR: Unable to allocate enough memory (NBFM).\n");
 		return NULL;
 	}
 
