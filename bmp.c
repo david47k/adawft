@@ -1,12 +1,11 @@
 /*  bmp.c - bitmap functions
 
-	Da Watch Face Tool (dawft)
-	dawft: Watch Face Tool for MO YOUNG / DA FIT binary watch face files.
+	Alternate Da Watch Face Tool (adawft)
+	adawft: Watch Face Tool for 'new' MO YOUNG / DA FIT binary watch face files.
 
-	Copyright 2022 David Atkinson
+	Copyright 2024 David Atkinson
 	Author: David Atkinson <dav!id47k@d47.co> (remove the '!')
 	License: GNU General Public License version 2 or any later version (GPL-2.0-or-later)
-
 */
 
 #include <string.h>
@@ -47,15 +46,6 @@ static u16 RGB888to565(u8 * buf) {
     output |= (r & 0xF8) << 8;            // 5 bits
     return output;
 }
-
-static u16 RGBTripTo565(RGBTrip * t) {
-    u16 output = 0;
-    output |= (t->b & 0xF8) >> 3;            // 5 bits
-    output |= (t->g & 0xFC) << 3;            // 6 bits
-    output |= (t->r & 0xF8) << 8;            // 5 bits
-    return output;
-}
-
 
 //----------------------------------------------------------------------------
 //  SETBMPHEADER - Set up a BMPHeaderClassic or BMPHeaderV4 struct

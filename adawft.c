@@ -116,10 +116,12 @@ int main(int argc, char * argv[]) {
 		
 	// read command-line parameters
 	for(int i=1; i<argc; i++) {
-		if(streq(argv[i], "--raw")) {
+		if(streq(argv[i], "--bin")) {
+			format = FMT_BIN;
+		} else if(streq(argv[i], "--raw")) {
 			format = FMT_RAW;
-		} else if(streq(argv[i], "--semiraw")) {
-			format = FMT_SEMI;
+		} else if(streq(argv[i], "--bmp")) {
+			format = FMT_BMP;
 		} else if(streqn(argv[i], "--dump", 6)) {
 			dump = true;
 			if(strlen(argv[i]) >= 8 && argv[i][6] == '=') {
@@ -154,8 +156,9 @@ int main(int argc, char * argv[]) {
 		dprintf(0, "Usage:   %s [OPTIONS] FILENAME\n\n",basename);
 		dprintf(0, "%s\n","  OPTIONS");
 		dprintf(0, "%s\n","    --dump=FOLDERNAME    Dump data to folder. Folder name defaults to 'dump'.");
-		dprintf(0, "%s\n","    --raw                When dumping, dump raw (compressed) files.");
-		dprintf(0, "%s\n","    --semiraw            When dumping, dump semiraw (decompressed raw bitmap) files.");
+		dprintf(0, "%s\n","    --bmp                When dumping, dump BMP (windows bitmap) files. Default.");
+		dprintf(0, "%s\n","    --raw                When dumping, dump raw (decompressed raw bitmap) files.");
+		dprintf(0, "%s\n","    --bin                When dumping, dump binary (rle compressed) files.");
 		dprintf(0, "%s\n","    --debug=LEVEL        Print more debug info. Range 0 to 3.");
 		dprintf(0, "%s\n","  FILENAME               Binary watch face file for input.");
 		dprintf(0, "\n");
@@ -184,9 +187,8 @@ int main(int argc, char * argv[]) {
 
 	// Print header info	
 	dprintf(2, "apiVer          %u\n", h->apiVer);
-	dprintf(2, "unknown0        0x%04X\n", h->unknown0);
-	dprintf(2, "unknown1        0x%04X\n", h->unknown1);
-	dprintf(2, "unknown2        %u\n", h->unknown2);
+	dprintf(2, "unknown         0x%04X\n", h->unknown);
+	dprintf(2, "previewOffset   0x%04X\n", h->previewOffset);
 	dprintf(2, "previewWidth    %u\n", h->previewWidth);
 	dprintf(2, "previewHeight   %u\n", h->previewHeight);
 	dprintf(2, "dhOffset        0x%04X\n", h->dhOffset);
@@ -195,18 +197,18 @@ int main(int argc, char * argv[]) {
 	// Create JSON structure to hold all the data
 	cJSON * cj = cJSON_CreateObject();
 	nullcheck(cj);
-	cJSON_AddStringToObject(cj, "type", "extrathunder watchface");
+	cJSON_AddStringToObject(cj, "type_str", "extrathunder watchface");
 	cJSON_AddNumberToObject(cj, "rev", 0);
 	cJSON_AddNumberToObject(cj, "tpls", 0);
 	cJSON_AddNumberToObject(cj, "api_ver", h->apiVer);
-	cJSON_AddNumberToObject(cj, "unknown0", h->unknown0);
-	cJSON_AddNumberToObject(cj, "unknown1", h->unknown1);
-	cJSON_AddNumberToObject(cj, "unknown2", h->unknown2);
-	cJSON_AddNumberToObject(cj, "preview_width", h->previewWidth);
-	cJSON_AddNumberToObject(cj, "preview_height", h->previewHeight);
+	cJSON_AddNumberToObject(cj, "unknown", h->unknown);
+	//cJSON_AddNumberToObject(cj, "preview_offset", h->previewOffset);
+	//cJSON_AddNumberToObject(cj, "preview_w", h->previewWidth);
+	//cJSON_AddNumberToObject(cj, "preview_h", h->previewHeight);
+	cJSON * cjpreview = cJSON_AddObjectToObject(cj, "preview_img_data");
 	cJSON * cjdigits = cJSON_AddArrayToObject(cj, "digits");
-	cJSON * cjwidgets = cJSON_AddArrayToObject(cj, "widgets");
-	nullcheck(cjdigits, cjwidgets);
+	cJSON * cjelements = cJSON_AddArrayToObject(cj, "elements");
+	nullcheck(cjpreview, cjdigits, cjelements);
 
 	// Create a buffer for storing the dump filenames
 	char dfnBuf[1024];
@@ -218,7 +220,17 @@ int main(int argc, char * argv[]) {
 		deleteBytes(bytes);
 		return 1;
 	}
-	
+
+	// Save the preview image
+	if (dump) {
+		sprintf(fnBuf, "preview.%s", dumpFormatStr(format));
+		sprintf(&dfnBuf[baseSize], "%s", fnBuf);
+		dumpImage(dfnBuf, &fileData[h->previewOffset], h->previewWidth, h->previewHeight, format);
+		cJSON_AddNumberToObject(cjpreview, "w", h->previewWidth);
+		cJSON_AddNumberToObject(cjpreview, "h", h->previewHeight);
+		cJSON_AddStringToObject(cjpreview, "file_name", fnBuf);
+	}
+
 	u16 digitsCounter = 0;			// A counter to count digit sets
 	u16 imageCounter = 0;			// A counter to count images
 	char sbuf[32];					// Buffer for temporary string data
@@ -241,19 +253,17 @@ int main(int argc, char * argv[]) {
 		printOwh(&dh->owh[0], 10, sbuf);					// print all the details
 		if(dump) {
 			cJSON * digits = cJSON_CreateObject();
-			cJSON_AddNumberToObject(digits, "set", dh->digitSet);
-			cJSON * arr = cJSON_AddArrayToObject(digits, "files");
+			cJSON * arr = cJSON_AddArrayToObject(digits, "img_data");
 			cJSON_AddNumberToObject(digits, "unknown", dh->unknown);
 			for(size_t i=0; i<10; i++) {
-				sprintf(fnBuf, "digit_%u_%zu.%s", dh->digitSet, i, (format==FMT_BMP?"bmp":"raw"));
+				sprintf(fnBuf, "digit_%u_%zu.%s", dh->digitSet, i, dumpFormatStr(format));
 				sprintf(&dfnBuf[baseSize], "%s", fnBuf);
 				dumpImage(dfnBuf, &fileData[dh->owh[i].offset], dh->owh[i].width, dh->owh[i].height, format);
-				if(format==FMT_BMP) {
-					cJSON * obj = cJSON_CreateObject();
-					cJSON_AddStringToObject(obj, "type", "bmp");
-					cJSON_AddStringToObject(obj, "name", fnBuf);					
-					cJSON_AddItemToArray(arr, obj);
-				}
+				cJSON * obj = cJSON_CreateObject();
+				cJSON_AddNumberToObject(obj, "w", dh->owh[i].width);
+				cJSON_AddNumberToObject(obj, "h", dh->owh[i].height);
+				cJSON_AddStringToObject(obj, "file_name", fnBuf);
+				cJSON_AddItemToArray(arr, obj);
 			}
 			cJSON_AddItemToArray(cjdigits, digits);
 		}
@@ -267,7 +277,7 @@ int main(int argc, char * argv[]) {
 	bool more = true;
 	while(more) {
 		u8 one = fileData[offset];
-		u8 type = fileData[offset+1];
+		u8 e_type = fileData[offset+1];
 		if(one==0) {
 			// End of header section
 			dprintf(2, "@ 0x%08zX  00 (End of headers)\n", offset);
@@ -275,35 +285,33 @@ int main(int argc, char * argv[]) {
 			more = false;
 			break;
 		}
-		switch(type) {
+		switch(e_type) {
 			case 0x00:
-				// ImageHeader for images
+				// ImageHeader for images (including the background)
 				ImageHeader * imageh = (ImageHeader *)&fileData[offset];
 				if(offset == h->bhOffset) {
 					dprintf(2, "@ 0x%08zX  ImageHeader (Background)\n", offset);
-					sprintf(fnBuf, "background.%s", (format==FMT_BMP?"bmp":"raw"));
 				} else {
 					dprintf(2, "@ 0x%08zX  ImageHeader\n", offset);
-					sprintf(fnBuf, "image_%u.%s", imageCounter++, (format==FMT_BMP?"bmp":"raw"));
 				}
+				sprintf(fnBuf, "image_%u.%s", imageCounter++, dumpFormatStr(format));
 				dprintf(3, "imageh.one     0x%02X\n", imageh->one);
 				dprintf(3, "imageh.xy      %3u, %3u\n", imageh->xy.x, imageh->xy.y);
 				dprintf(3, "imageh.owh     0x%08X, %3u, %3u\n", imageh->offset, imageh->width, imageh->height);					
 				if(dump) {
 					sprintf(&dfnBuf[baseSize], "%s", fnBuf);
 					dumpImage(dfnBuf, &fileData[imageh->offset], imageh->width, imageh->height, format);
-					if(format==FMT_BMP) {
-						cJSON * cjimage = cJSON_CreateObject();
-						cJSON_AddStringToObject(cjimage, "name", fnBuf);
-						cJSON_AddStringToObject(cjimage, "type", "bmp");
-						cJSON_AddNumberToObject(cjimage, "w", imageh->width);
-						cJSON_AddNumberToObject(cjimage, "h", imageh->height);
-						if(offset == h->bhOffset) {
-							cJSON_AddItemToObject(cj, "background", cjimage);
-						} else {
-							cJSON_AddItemToArray(cjwidgets, cjimage);
-						}
-					}
+					cJSON * cjimg = cJSON_CreateObject();
+					//cJSON_AddNumberToObject(cjimg, "e_type", imageh->e_type);
+					cJSON_AddStringToObject(cjimg, "e_type", "image");
+					cJSON_AddNumberToObject(cjimg, "x", imageh->xy.x);
+					cJSON_AddNumberToObject(cjimg, "y", imageh->xy.y);
+					cJSON * cjimgdata = cJSON_CreateObject();
+					cJSON_AddNumberToObject(cjimgdata, "w", imageh->width);
+					cJSON_AddNumberToObject(cjimgdata, "h", imageh->height);
+					cJSON_AddStringToObject(cjimgdata, "file_name", fnBuf);
+					cJSON_AddItemToObject(cjimg, "img_data", cjimgdata);
+					cJSON_AddItemToArray(cjelements, cjimg);
 				}				
 				offset += sizeof(ImageHeader);
 				break;
@@ -314,7 +322,8 @@ int main(int argc, char * argv[]) {
 				dprintf(3, "                digitSet: %u %u %u %u\n", time->digitSet[0], time->digitSet[1], time->digitSet[2], time->digitSet[3]);
 				if(dump) {
 					cJSON * cjtime = cJSON_CreateObject();
-					cJSON_AddNumberToObject(cjtime, "type", time->type);
+					//cJSON_AddNumberToObject(cjtime, "e_type", time->e_type);
+					cJSON_AddStringToObject(cjtime, "e_type", "time_num");
 					int iArr[4] = { time->digitSet[0], time->digitSet[1], time->digitSet[2], time->digitSet[3] };
 					cJSON * cjarr = cJSON_CreateIntArray(iArr, 4);
 					cJSON_AddItemToObject(cjtime, "digit_sets", cjarr);
@@ -326,7 +335,13 @@ int main(int argc, char * argv[]) {
 						cJSON_AddItemToArray(cjarr, xy);
 					}
 					cJSON_AddItemToObject(cjtime, "xys", cjarr);
-					cJSON_AddItemToArray(cjwidgets, cjtime);				
+					int unkArr[12];
+					for(int i=0; i<12; i++) {
+						unkArr[i] = time->unknown[i];
+					}
+					cjarr = cJSON_CreateIntArray(unkArr, 12);
+					cJSON_AddItemToObject(cjtime, "unknown", cjarr);
+					cJSON_AddItemToArray(cjelements, cjtime);				
 				}								
 				offset += sizeof(TimeHeader);
 				break;				
@@ -336,7 +351,7 @@ int main(int argc, char * argv[]) {
 				DayNameHeader * dname = (DayNameHeader *)&fileData[offset];
 				if(dump) {
 					for(size_t i=0; i<7; i++) {
-						sprintf(&dfnBuf[baseSize], "dayname_%u_%zu.%s", dname->subtype, i, (format==FMT_BMP?"bmp":"raw"));
+						sprintf(&dfnBuf[baseSize], "dayname_%u_%zu.%s", dname->subtype, i, dumpFormatStr(format));
 						dumpImage(dfnBuf, &fileData[dname->owh[i].offset], dname->owh[i].width, dname->owh[i].height, format);
 					}
 				}				
@@ -347,11 +362,11 @@ int main(int argc, char * argv[]) {
 				dprintf(2, "@ 0x%08zX  BatteryFillHeader\n", offset);
 				BatteryFillHeader * batteryFill = (BatteryFillHeader *)&fileData[offset];
 				if(dump) {
-					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 0, (format==FMT_BMP?"bmp":"raw"));
+					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 0, dumpFormatStr(format));
 					dumpImage(dfnBuf, &fileData[batteryFill->owh.offset], batteryFill->owh.width, batteryFill->owh.height, format);
-					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 1, (format==FMT_BMP?"bmp":"raw"));
+					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 1, dumpFormatStr(format));
 					dumpImage(dfnBuf, &fileData[batteryFill->owh1.offset], batteryFill->owh1.width, batteryFill->owh1.height, format);
-					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 2, (format==FMT_BMP?"bmp":"raw"));
+					sprintf(&dfnBuf[baseSize], "batteryfill_%u_.%s", 2, dumpFormatStr(format));
 					dumpImage(dfnBuf, &fileData[batteryFill->owh2.offset], batteryFill->owh2.width, batteryFill->owh2.height, format);
 				}
 				offset += sizeof(BatteryFillHeader);
@@ -380,7 +395,7 @@ int main(int argc, char * argv[]) {
 				dprintf(2, "@ 0x%08zX  HandsHeader\n", offset);
 				HandsHeader * hands = (HandsHeader *)&fileData[offset];				
 				if(dump) {		
-					sprintf(&dfnBuf[baseSize], "hand_%u.%s", hands->subtype, (format==FMT_BMP?"bmp":"raw"));
+					sprintf(&dfnBuf[baseSize], "hand_%u.%s", hands->subtype, dumpFormatStr(format));
 					dumpImage(dfnBuf, &fileData[hands->offset], hands->width, hands->height, format);
 				}
 				offset += sizeof(HandsHeader);
@@ -405,7 +420,7 @@ int main(int argc, char * argv[]) {
 				dprintf(2, "@ 0x%08zX  BarDisplayHeader. subtype: %u. count: %u.\n", offset, bdh->subtype, bdh->count);
 				if(dump) {
 					for(size_t i=0; i<bdh->count; i++) {
-						sprintf(&dfnBuf[baseSize], "bardisplay_%u_%zu.%s", bdh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
+						sprintf(&dfnBuf[baseSize], "bardisplay_%u_%zu.%s", bdh->subtype, i, dumpFormatStr(format));
 						dumpImage(dfnBuf, &fileData[bdh->owh[i].offset], bdh->owh[i].width, bdh->owh[i].height, format);
 					}
 				}						
@@ -414,10 +429,10 @@ int main(int argc, char * argv[]) {
 			case 0x1B:
 				// WeatherHeader
 				WeatherHeader * wh = (WeatherHeader *)&fileData[offset];
-				dprintf(2, "@ 0x%08zX  WeatherHeader. subtype: %u.\n", offset, wh->subtype);
+				dprintf(2, "@ 0x%08zX  WeatherHeader. count: %u.\n", offset, wh->count);
 				if(dump) {
-					for(size_t i=0; i<wh->subtype; i++) {
-						sprintf(&dfnBuf[baseSize], "weather_%u_%zu.%s", wh->subtype, i, (format==FMT_BMP?"bmp":"raw"));
+					for(size_t i=0; i<wh->count; i++) {
+						sprintf(&dfnBuf[baseSize], "weather_%u_%zu.%s", wh->count, i, dumpFormatStr(format));
 						dumpImage(dfnBuf, &fileData[wh->owh[i].offset], wh->owh[i].width, wh->owh[i].height, format);
 					}
 				}										
@@ -430,14 +445,13 @@ int main(int argc, char * argv[]) {
 				offset += sizeof(Unknown1D01);
 				break;
 			case 0x23:
-				// Unknown2301 * u2h = (Unknown2301 *)&fileData[offset];
-				dprintf(1, "@ 0x%08zX  Unknown2301Header.\n", offset);
-				offset += sizeof(Unknown2301);
+				dprintf(1, "@ 0x%08zX  DashHeader.\n", offset);
+				offset += sizeof(DashHeader);
 				break;	
 			default:
 				// UNKNOWN DATA
-				dprintf(0, "@ 0x%08zX  UNKNOWN TYPE 0x%02X (one=0x%02X)\n", offset, type, one);
-				dprintf(0, "ERROR: Unknown type found. Stopping early.\n");
+				dprintf(0, "@ 0x%08zX  UNKNOWN TYPE 0x%02X (one=0x%02X)\n", offset, e_type, one);
+				dprintf(0, "ERROR: Unknown e_type found. Stopping early.\n");
 				more = false;
 				break;
 		}

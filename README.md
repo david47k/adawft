@@ -1,12 +1,16 @@
-# Alternate Da Watch Face Tool (adawft)
+# Deprecated
 
-Tool for the 'new' MO YOUNG / DA FIT binary watch face files. Allows you to dump (unpack) the files.
+### This tool is deprecated. It has been replaced by [extrathundertool](https://github.com/david47k/extrathundertool).
 
-The tool for the older watch face files is [here](https://github.com/david47k/dawft).
+# Alternate Da Watch Face Tool
+
+This is a tool for the 'new' MO YOUNG / DA FIT binary watch face files. It allows you to dump (unpack) the files. It can't pack them.
+
+The tool for the older watch face files (pre-'new') is [here](https://github.com/david47k/dawft).
 
 ## Building
 
-Run `make` to compile the program using gcc, or `make debug-clang` to compile the program using clang. 
+Run `make` to compile the program using gcc. 
 
 ## Supported watches
 

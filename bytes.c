@@ -11,7 +11,6 @@
 #include "bytes.h"
 #include "strutil.h"
 
-
 //----------------------------------------------------------------------------
 //  NEWBYTESFROMFILE - read entire file into memory into a Bytes struct
 //----------------------------------------------------------------------------

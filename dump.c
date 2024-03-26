@@ -13,24 +13,31 @@
 #include "dump.h"
 #include "strutil.h"
 
+// get format string
+const char * dumpFormatStr(Format f) {
+	switch(f) {
+		case FMT_BIN: return "bin";
+		case FMT_RAW: return "raw";
+		case FMT_BMP: return "bmp";
+	}
+	return "err";
+}
+
 // determine image size from compressed data -- this doesn't include the size of the header
 static size_t determineImageSize(u8 * srcData, const size_t height) {
 	size_t headerSize = height * 4;
-	size_t lastHeaderEntry = headerSize - 4;
-	const u8 * lastHeaderEntryPtr = &srcData[lastHeaderEntry];
-	size_t lastOffset = get_u16(lastHeaderEntryPtr);
-	u16 lastSize = get_u16(&lastHeaderEntryPtr[2]);
-	// The size is stored as a multiple of 32. The lowest 5 bits are the hi part of the offset.
-	lastOffset += (lastSize&0x001F) * 65536;
-	size_t imageSize = lastOffset + (lastSize / 32);
+	const u8 * lastHeaderEntryPtr = &srcData[headerSize - 4];
+	size_t lastOffset = get_u16(lastHeaderEntryPtr) + ((get_u16(&lastHeaderEntryPtr[2]) & 0x001F) << 16);		// extra 5 bits
+	size_t lastSize = get_u16(&lastHeaderEntryPtr[2]) >> 5;
+	size_t imageSize = lastOffset + lastSize;
 	return (imageSize - headerSize);
 }
 
 // dump raw compressed image data
-static int dumpImageRaw(const char * filename, u8 * srcData, const size_t height) {
+static int dumpImageBin(const char * filename, u8 * srcData, const size_t height) {
 	size_t headerSize = height * 4;
 	size_t imageSize = determineImageSize(srcData, height);
-	dprintf(1, "Dumping RAW %s ... ", filename);	
+	dprintf(1, "Dumping BIN %s ... ", filename);	
 	
 	int r = dumpBlob(filename, srcData, imageSize + headerSize);
 	if(r!=0) {
@@ -41,11 +48,11 @@ static int dumpImageRaw(const char * filename, u8 * srcData, const size_t height
 	return 0;
 }
 
-// dump semi-raw decompressed image data
-static int dumpImageSemi(const char * filename, u8 * srcData, const size_t width, const size_t height) {
+// dump raw decompressed image data
+static int dumpImageRaw(const char * filename, u8 * srcData, const size_t width, const size_t height) {
 	size_t headerSize = height * 4;
 	size_t imageSize = determineImageSize(srcData, height);
-	dprintf(1, "Dumping semi-RAW %s ... ", filename);	
+	dprintf(1, "Dumping RAW %s ... ", filename);	
 
 	Img srcImg;
 	srcImg.w = width;
@@ -56,16 +63,16 @@ static int dumpImageSemi(const char * filename, u8 * srcData, const size_t width
 
 	Img * img = cloneImg(&srcImg);
 
-	// convert it to a semi-raw format
+	// convert it to a raw format
 	img = convertImg(img, IF_ARGB8565);
 	if(img==NULL) {
-		dprintf(0, "ERROR: Failed to convertImg in dumpImageSemi\n");
+		dprintf(0, "ERROR: Failed to convertImg in dumpImageRaw\n");
 		deleteImg(img);
 	}
 	
 	int r = dumpBlob(filename, img->data, img->size);
 	if(r != 0) {
-		dprintf(0, "ERROR: Filed to save semi-RAW file!\n");		
+		dprintf(0, "ERROR: Filed to save RAW file!\n");		
 		img = deleteImg(img);
 		return 1;
 	}
@@ -109,10 +116,10 @@ static int dumpImageBMP(const char * filename, u8 * srcData, const size_t width,
 
 // dump an image in the requested format
 int dumpImage(const char * filename, u8 * srcData, const size_t width, const size_t height, const Format format) {
-	if(format == FMT_RAW) {
-		return dumpImageRaw(filename, srcData, height);
-	} else if(format == FMT_SEMI) {
-		return dumpImageSemi(filename, srcData, width, height);
+	if(format == FMT_BIN) {
+		return dumpImageBin(filename, srcData, height);
+	} else if(format == FMT_RAW) {
+		return dumpImageRaw(filename, srcData, width, height);
 	} else { // format == FMT_BMP
 		return dumpImageBMP(filename, srcData, width, height);
 	}
